@@ -336,8 +336,17 @@
 
         // Handle pixelation
         elements.pixelateBtn.addEventListener('click', async () => {
+            // Prevent multiple simultaneous clicks
+            if (elements.pixelateBtn.disabled) {
+                return;
+            }
+
+            // Disable button immediately when clicked
+            elements.pixelateBtn.disabled = true;
+
             if (!currentImage) {
                 alert('Please upload an image first.');
+                elements.pixelateBtn.disabled = false;
                 return;
             }
 
@@ -348,8 +357,10 @@
             const useEdgeAware = elements.useEdgeAware.checked;
 
             try {
-                elements.pixelateBtn.disabled = true;
                 elements.pixelateBtn.textContent = useEdgeAware ? 'Processing (Edge-Aware)...' : 'Processing...';
+
+                // Allow UI to update before starting processing
+                await new Promise(resolve => setTimeout(resolve, 0));
 
                 let pixelated;
                 if (useEdgeAware) {
@@ -386,8 +397,10 @@
                         }
                     }
                 } else {
-                    // Use simple pixelation
+                    // Use simple pixelation (synchronous, but wrapped to allow UI update)
                     const contrast = parseFloat(elements.contrastSlider.value);
+                    // Use requestAnimationFrame to ensure UI updates before blocking operation
+                    await new Promise(resolve => requestAnimationFrame(resolve));
                     pixelated = pixelateImage(currentImage, pixelSize, {
                         returnCanvas: true,
                         colorLimit: colorLimit,
@@ -431,19 +444,19 @@
 
         // Update projection when rotation angle changes (if projection is enabled)
         elements.rotationAngleSlider.addEventListener('input', () => {
-            if (elements.useProjection.checked && currentImage) {
+            if (elements.useProjection.checked && currentImage && !elements.pixelateBtn.disabled) {
                 elements.pixelateBtn.click();
             }
         });
         elements.rotationAngleNumber.addEventListener('input', () => {
-            if (elements.useProjection.checked && currentImage) {
+            if (elements.useProjection.checked && currentImage && !elements.pixelateBtn.disabled) {
                 elements.pixelateBtn.click();
             }
         });
 
         // Update projection when checkbox is toggled
         elements.useProjection.addEventListener('change', () => {
-            if (currentImage && elements.pixelatedCanvas.width > 0) {
+            if (currentImage && elements.pixelatedCanvas.width > 0 && !elements.pixelateBtn.disabled) {
                 elements.pixelateBtn.click();
             }
         });
