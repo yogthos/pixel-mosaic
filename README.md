@@ -16,7 +16,7 @@ This library implements canvas-based techniques for pixelating images.
 ### NPM
 
 ```bash
-npm install pixel-mosaic
+npm install @yogthos/pixel-mosaic
 ```
 
 ### From Source
@@ -52,7 +52,7 @@ npx http-server -p 8000
 ### Using as an NPM Package
 
 ```javascript
-import { pixelateImage, loadImage } from 'pixel-mosaic';
+import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
 
 // Load an image
 const img = await loadImage('path/to/image.jpg');
@@ -173,7 +173,7 @@ const rotated = applyProjection(myImage, rotation);
 ### Basic Pixelation
 
 ```javascript
-import { pixelateImage, loadImage } from 'pixel-mosaic';
+import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
 
 const img = await loadImage('photo.jpg');
 const pixelated = pixelateImage(img, 8, { returnCanvas: true });
@@ -183,7 +183,7 @@ document.body.appendChild(pixelated);
 ### Pixelation with Color Limiting
 
 ```javascript
-import { pixelateImage, loadImage } from 'pixel-mosaic';
+import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
 
 const img = await loadImage('photo.jpg');
 const pixelated = pixelateImage(img, 6, {
@@ -195,7 +195,7 @@ const pixelated = pixelateImage(img, 6, {
 ### Combining Pixelation and Projection
 
 ```javascript
-import { pixelateImage, loadImage, applyProjection, rotationMatrix } from 'pixel-mosaic';
+import { pixelateImage, loadImage, applyProjection, rotationMatrix } from '@yogthos/pixel-mosaic';
 
 const img = await loadImage('photo.jpg');
 
@@ -215,10 +215,10 @@ You can also import from specific sub-modules:
 
 ```javascript
 // Import only pixelation functions
-import { pixelateImage, loadImage } from 'pixel-mosaic/pixelate';
+import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic/pixelate';
 
 // Import only projection functions
-import { applyProjection, rotationMatrix } from 'pixel-mosaic/projection';
+import { applyProjection, rotationMatrix } from '@yogthos/pixel-mosaic/projection';
 ```
 
 ## Technical Details
