@@ -14,21 +14,16 @@ A canvas-based library for pixelating images with edge-aware algorithms and proj
 - Contrast adjustment
 - Projective transformations (homography)
 
-original image
-
-![](img/dino.jpg)
-
-using naive approach to pixelate the image
-
-![](img/dino_px_naive.png)
-
-using edge detection approach
-
-![](img/dino_px.png)
-
-using edge detection approach with edge sharpening
-
-![](img/dino_px_sharp.png)
+<table>
+<tr>
+<td><strong>Original</strong><br><img src="img/dino.jpg" width="300"></td>
+<td><strong>Naive Approach</strong><br><img src="img/dino_px_naive.png" width="300"></td>
+</tr>
+<tr>
+<td><strong>Edge Detection</strong><br><img src="img/dino_px.png" width="300"></td>
+<td><strong>Edge Detection + Sharpening</strong><br><img src="img/dino_px_sharp.png" width="300"></td>
+</tr>
+</table>
 
 ## Installation
 
@@ -36,7 +31,28 @@ using edge detection approach with edge sharpening
 npm install @yogthos/pixel-mosaic
 ```
 
+## Installation
+
+```bash
+git clone https://github.com/yogthos/pixel-mosaic.git
+cd pixel-mosaic
+```
+
 ## Quick Start
+
+### Using the Demo Page
+
+1. Start a local web server (required for ES modules):
+
+```bash
+# Python 3
+python3 -m http.server 8000
+
+# Node.js (with http-server)
+npx http-server -p 8000
+```
+
+### API
 
 ```javascript
 import { pixelateImage, pixelateImageEdgeAware, loadImage } from '@yogthos/pixel-mosaic';
