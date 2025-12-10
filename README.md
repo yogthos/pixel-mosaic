@@ -176,3 +176,73 @@ npm run test:coverage
 - Modern browsers with ES6 modules
 - Canvas API required
 - WebGL recommended (CPU fallback available)
+
+## Why Edge-Aware Pixelation?
+
+Most pixelation libraries use a simple approach: downscale the image, then upscale it back. While fast, this creates pixel blocks that cut across important image features like edges, faces, and fine details, resulting in artifacts and loss of visual clarity.
+
+**Pixel Mosaic** takes a fundamentally different approach. Instead of forcing a rigid grid onto the image, it adapts the grid to align with the image's natural structure. The result? Pixel art that preserves the essential character of the original image while achieving that distinctive low-resolution aesthetic.
+
+### Technical Deep Dive
+
+#### Naive Downsampling: The Traditional Approach
+
+The naive method is straightforward:
+1. **Downscale**: Reduce image dimensions by dividing by the pixel size (e.g., 1920×1080 → 384×216 for 5px blocks)
+2. **Upscale**: Scale back to original size using nearest-neighbor interpolation
+3. **Optional**: Apply color quantization or contrast adjustment
+
+**Limitations:**
+- Fixed grid boundaries ignore image content
+- Edges get "chopped" across pixel boundaries, creating jagged artifacts
+- Important features (eyes, edges, text) become distorted
+- No awareness of image structure or semantics
+
+#### Edge-Aware Algorithm: Adaptive Grid Optimization
+
+Edge detection approach treats pixelation as an optimization problem:
+
+1. **Edge Detection**:
+   - Uses Sobel operators to compute gradient magnitude and direction
+   - Applies non-maximum suppression to thin edges to single-pixel width
+   - Thresholds edges using percentile-based filtering (configurable via `edgeSharpness`)
+   - WebGL-accelerated for performance (CPU fallback available)
+
+2. **Grid Initialization**:
+   - Creates a regular quadrilateral grid matching the target pixel size
+   - Each cell is a quadrilateral (not necessarily rectangular after optimization)
+
+3. **Grid Optimization**:
+   - Iteratively moves grid corner points to align cell boundaries with detected edges
+   - Uses a search-based optimization: for each corner, tests multiple positions in a local neighborhood
+   - Evaluates alignment by sampling edge strength along grid edges
+   - Applies damping based on `edgeSharpness` to control how aggressively corners snap to edges
+   - Runs for multiple iterations (default: 2-5) with progressively refined search
+
+4. **Color Assignment**:
+   - Samples pixels within each optimized cell
+   - Blends between average color (soft) and median color (crisp) based on `edgeSharpness`
+   - Uses spatial hashing for efficient pixel-to-cell mapping during rendering
+
+5. **Rendering**:
+   - Efficiently maps each output pixel to its containing cell
+   - Uses point-in-quadrilateral tests with spatial hash acceleration
+   - Ensures complete coverage with fallback to nearest-cell assignment
+
+**Advantages:**
+- Grid boundaries align with image edges, preserving important features
+- Natural-looking pixel art that maintains image semantics
+- Configurable sharpness: from soft, blended edges (0.0) to crisp, high-contrast results (1.0)
+- Handles complex shapes and curved edges gracefully
+- WebGL acceleration makes it practical for real-time applications
+
+### Performance Considerations
+
+The edge-aware algorithm is more computationally intensive than naive downsampling, but optimizations make it practical:
+
+- **WebGL acceleration**: Edge detection runs on GPU when available (10-50x faster)
+- **Spatial hashing**: O(1) average-case pixel-to-cell lookup during rendering
+- **Adaptive sampling**: Color calculation samples pixels at intervals for large cells
+- **Iterative refinement**: Early iterations use coarser search, later iterations refine
+
+For most images, edge-aware pixelation completes in 100-500ms on modern hardware (with WebGL), making it suitable for interactive applications.
