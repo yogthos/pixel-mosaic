@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Mosaic - Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9em;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        input[type="number"] {
+            width: 80px;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            border: 2px dashed #667eea;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .canvas-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .canvas-wrapper {
+            text-align: center;
+        }
+
+        .canvas-wrapper h2 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.3em;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            border-radius: 4px;
+            color: #1565c0;
+        }
+
+        @media (max-width: 768px) {
+            .canvas-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Pixel Mosaic</h1>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="imageInput">Upload Image</label>
+                <input type="file" id="imageInput" accept="image/*">
+            </div>
+
+            <div class="control-group">
+                <label for="pixelSize">Pixel Size: <span id="pixelSizeValue">3</span></label>
+                <input type="range" id="pixelSize" min="2" max="32" value="3">
+                <input type="number" id="pixelSizeNumber" min="2" max="32" value="3">
+            </div>
+
+            <div class="control-group">
+                <label for="colorLimit">Color Limit: <span id="colorLimitValue">32</span></label>
+                <input type="range" id="colorLimit" min="2" max="256" value="32">
+                <input type="number" id="colorLimitNumber" min="2" max="256" value="32">
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="useColorLimit" checked>
+                    Enable Color Limiting
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="useProjection">
+                    Apply Rotation (Projection)
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label for="rotationAngle">Rotation Angle: <span id="rotationAngleValue">0</span>°</label>
+                <input type="range" id="rotationAngle" min="0" max="360" value="0">
+                <input type="number" id="rotationAngleNumber" min="0" max="360" value="0">
+            </div>
+
+            <div class="control-group">
+                <button id="pixelateBtn" disabled>Pixelate Image</button>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <div class="canvas-wrapper">
+                <h2>Original Image</h2>
+                <canvas id="originalCanvas"></canvas>
+            </div>
+            <div class="canvas-wrapper">
+                <h2>Pixelated Image</h2>
+                <canvas id="pixelatedCanvas"></canvas>
+            </div>
+            <div class="canvas-wrapper">
+                <h2>With Projection</h2>
+                <canvas id="projectedCanvas"></canvas>
+            </div>
+        </div>
+
+        <div class="info">
+            <strong>How to use:</strong> Upload an image, adjust the pixel size and color limit sliders, then click "Pixelate Image" to see the result. Enable "Apply Rotation" to see a projective transformation example.
+        </div>
+    </div>
+
+    <script type="module">
+        import { pixelateImage, loadImage } from './src/pixelate.js';
+        import { applyProjection, rotationMatrix } from './src/projection.js';
+
+        const elements = {
+            imageInput: document.getElementById('imageInput'),
+            pixelSizeSlider: document.getElementById('pixelSize'),
+            pixelSizeNumber: document.getElementById('pixelSizeNumber'),
+            pixelSizeValue: document.getElementById('pixelSizeValue'),
+            colorLimitSlider: document.getElementById('colorLimit'),
+            colorLimitNumber: document.getElementById('colorLimitNumber'),
+            colorLimitValue: document.getElementById('colorLimitValue'),
+            useColorLimit: document.getElementById('useColorLimit'),
+            useProjection: document.getElementById('useProjection'),
+            rotationAngleSlider: document.getElementById('rotationAngle'),
+            rotationAngleNumber: document.getElementById('rotationAngleNumber'),
+            rotationAngleValue: document.getElementById('rotationAngleValue'),
+            pixelateBtn: document.getElementById('pixelateBtn'),
+            originalCanvas: document.getElementById('originalCanvas'),
+            pixelatedCanvas: document.getElementById('pixelatedCanvas'),
+            projectedCanvas: document.getElementById('projectedCanvas')
+        };
+
+        const originalCtx = elements.originalCanvas.getContext('2d');
+        const pixelatedCtx = elements.pixelatedCanvas.getContext('2d');
+        const projectedCtx = elements.projectedCanvas.getContext('2d');
+        let currentImage = null;
+
+        // Sync slider and number input
+        function syncControl(slider, number, valueDisplay, min, max, defaultVal) {
+            const syncFromSlider = () => {
+                const value = slider.value;
+                number.value = value;
+                valueDisplay.textContent = value;
+            };
+
+            const syncFromNumber = (e) => {
+                const value = Math.max(min, Math.min(max, parseInt(e.target.value) || defaultVal));
+                slider.value = value;
+                number.value = value;
+                valueDisplay.textContent = value;
+            };
+
+            slider.addEventListener('input', syncFromSlider);
+            number.addEventListener('input', syncFromNumber);
+            syncFromSlider();
+        }
+
+        syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 32, 3);
+        syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
+        syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
+
+        // Handle image upload
+        elements.imageInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) {
+                elements.pixelateBtn.disabled = true;
+                return;
+            }
+
+            try {
+                elements.pixelateBtn.disabled = true;
+                elements.pixelateBtn.textContent = 'Loading...';
+
+                const img = await loadImage(file);
+                currentImage = img;
+
+                elements.originalCanvas.width = img.width;
+                elements.originalCanvas.height = img.height;
+                originalCtx.drawImage(img, 0, 0);
+
+                elements.pixelateBtn.disabled = false;
+                elements.pixelateBtn.textContent = 'Pixelate Image';
+            } catch (error) {
+                alert('Failed to load image: ' + error.message);
+                elements.pixelateBtn.disabled = true;
+                elements.pixelateBtn.textContent = 'Pixelate Image';
+            }
+        });
+
+        // Handle pixelation
+        elements.pixelateBtn.addEventListener('click', () => {
+            if (!currentImage) {
+                alert('Please upload an image first.');
+                return;
+            }
+
+            const pixelSize = parseInt(elements.pixelSizeSlider.value);
+            const colorLimit = elements.useColorLimit.checked
+                ? parseInt(elements.colorLimitSlider.value)
+                : null;
+
+            try {
+                elements.pixelateBtn.disabled = true;
+                elements.pixelateBtn.textContent = 'Processing...';
+
+                const pixelated = pixelateImage(currentImage, pixelSize, {
+                    returnCanvas: true,
+                    colorLimit: colorLimit
+                });
+
+                elements.pixelatedCanvas.width = pixelated.width;
+                elements.pixelatedCanvas.height = pixelated.height;
+                pixelatedCtx.drawImage(pixelated, 0, 0);
+
+                // Apply projection if enabled
+                if (elements.useProjection.checked) {
+                    const angle = (parseFloat(elements.rotationAngleSlider.value) * Math.PI) / 180;
+                    const centerX = pixelated.width / 2;
+                    const centerY = pixelated.height / 2;
+                    const transform = rotationMatrix(angle, centerX, centerY);
+
+                    const projected = applyProjection(pixelated, transform, {
+                        returnCanvas: true,
+                        interpolation: 'nearest'
+                    });
+
+                    elements.projectedCanvas.width = projected.width;
+                    elements.projectedCanvas.height = projected.height;
+                    projectedCtx.drawImage(projected, 0, 0);
+                } else {
+                    // Clear projection canvas
+                    elements.projectedCanvas.width = 0;
+                    elements.projectedCanvas.height = 0;
+                }
+
+                elements.pixelateBtn.disabled = false;
+                elements.pixelateBtn.textContent = 'Pixelate Image';
+            } catch (error) {
+                alert('Failed to pixelate image: ' + error.message);
+                elements.pixelateBtn.disabled = false;
+                elements.pixelateBtn.textContent = 'Pixelate Image';
+            }
+        });
+
+        // Update projection when rotation angle changes (if projection is enabled)
+        elements.rotationAngleSlider.addEventListener('input', () => {
+            if (elements.useProjection.checked && currentImage) {
+                elements.pixelateBtn.click();
+            }
+        });
+        elements.rotationAngleNumber.addEventListener('input', () => {
+            if (elements.useProjection.checked && currentImage) {
+                elements.pixelateBtn.click();
+            }
+        });
+
+        // Update projection when checkbox is toggled
+        elements.useProjection.addEventListener('change', () => {
+            if (currentImage && elements.pixelatedCanvas.width > 0) {
+                elements.pixelateBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>
+
