@@ -10,6 +10,7 @@ This library implements canvas-based techniques for pixelating images, including
 
 - **Simple Pixelation**: Scale down and up images with nearest-neighbor interpolation for crisp pixel art effects
 - **Edge-Aware Pixelation**: Advanced algorithm that detects image edges and aligns pixel grid boundaries with them for sharper, more natural-looking pixel art
+- **Configurable Edge Sharpness**: Control edge detection sharpness (0-1 scale) for clean, crisp edges with configurable thresholding
 - **WebGL Acceleration**: GPU-accelerated edge detection for faster processing (with CPU fallback)
 - **Color Quantization**: Reduce color palette using an improved diversity-maximizing algorithm
 - **Contrast Adjustment**: Adjust image contrast to enhance pixel art effects
@@ -70,6 +71,7 @@ npx http-server -p 8000
    - **Color Limit**: Maximum number of colors in the palette
    - **Contrast**: Adjust image contrast (1.0 = no change, < 1.0 = reduce, > 1.0 = increase)
    - **Edge-Aware Pixelation**: Enable advanced edge-aligned pixelation
+   - **Edge Sharpness**: Control edge detection sharpness (0-1, default: 0.8 for strong edges)
    - **Optimization Iterations**: Number of grid optimization steps (when edge-aware is enabled)
 
 ### Using as an NPM Package
@@ -92,6 +94,7 @@ const edgeAwarePixelated = await pixelateImageEdgeAware(img, 8, {
   returnCanvas: true,
   colorLimit: 32,
   contrast: 1.1,
+  edgeSharpness: 0.8,  // Edge sharpness (0-1, default: 0.8 for strong edges)
   numIterations: 3,
   searchSteps: 9,
   onProgress: (info) => {
@@ -159,6 +162,7 @@ Pixelates an image using an edge-aware algorithm that aligns pixel grid boundari
   - `returnCanvas` (boolean, default: false) - If true, returns canvas element; otherwise returns ImageData
   - `colorLimit` (number, optional) - Limit the number of colors for color quantization
   - `contrast` (number, default: 1.0) - Contrast adjustment factor (1.0 = no change, < 1.0 = reduce contrast, > 1.0 = increase contrast)
+  - `edgeSharpness` (number, default: 0.8) - Edge sharpness level (0-1). Higher values create sharper, cleaner edges. Maps to threshold: 0.0 = soft (no thresholding), 0.8 = strong (threshold 0.72, default), 1.0 = very sharp (threshold 0.9)
   - `searchSteps` (number, default: 9) - Number of search positions per corner (3x3 grid = 9)
   - `numIterations` (number, default: 2) - Number of optimization iterations
   - `onProgress` (function, optional) - Callback with progress info: `{ usingGPU: boolean }`
@@ -171,6 +175,7 @@ const pixelated = await pixelateImageEdgeAware(myImage, 10, {
   returnCanvas: true,
   colorLimit: 16,
   contrast: 1.1,
+  edgeSharpness: 0.9,  // Very sharp edges
   numIterations: 3,
   onProgress: (info) => {
     console.log('GPU acceleration:', info.usingGPU);
@@ -270,8 +275,9 @@ const img = await loadImage('photo.jpg');
 const pixelated = await pixelateImageEdgeAware(img, 10, {
   returnCanvas: true,
   colorLimit: 32,
-  contrast: 1.2,    // Increase contrast
-  numIterations: 3,  // More iterations = better edge alignment
+  contrast: 1.2,        // Increase contrast
+  edgeSharpness: 0.8,   // Strong edge sharpness (default)
+  numIterations: 3,     // More iterations = better edge alignment
   onProgress: (info) => {
     if (info.usingGPU) {
       console.log('Using GPU acceleration');
@@ -279,6 +285,25 @@ const pixelated = await pixelateImageEdgeAware(img, 10, {
   }
 });
 document.body.appendChild(pixelated);
+```
+
+### Adjusting Edge Sharpness
+
+```javascript
+// Soft edges (more edges detected, less aggressive filtering)
+const soft = await pixelateImageEdgeAware(img, 10, {
+  edgeSharpness: 0.3  // Soft edges
+});
+
+// Default strong edges
+const default = await pixelateImageEdgeAware(img, 10, {
+  edgeSharpness: 0.8  // Strong edges (default)
+});
+
+// Very sharp edges (only strongest edges)
+const sharp = await pixelateImageEdgeAware(img, 10, {
+  edgeSharpness: 1.0  // Maximum sharpness
+});
 ```
 
 ### Combining Pixelation and Projection
@@ -309,6 +334,12 @@ import { pixelateImage, pixelateImageEdgeAware, loadImage } from '@yogthos/pixel
 // Import edge detection functions
 import { calculateEdgeMap, calculateEdgeMapWebGL } from '@yogthos/pixel-mosaic/edgeDetection';
 
+// Use edge detection directly with configurable sharpness
+const edgeMap = calculateEdgeMap(imageData, {
+  edgeSharpness: 0.8,  // 0-1 scale (default: 0.8 for strong edges)
+  applyNMS: true       // Non-maximum suppression (default: true)
+});
+
 // Import grid optimization functions
 import { createInitialGrid, optimizeGridCorners, renderGrid } from '@yogthos/pixel-mosaic/gridOptimization';
 
@@ -333,6 +364,9 @@ This creates the characteristic blocky pixel art effect.
 The edge-aware pixelation algorithm provides superior results by aligning pixel boundaries with image edges:
 
 1. **Edge Detection**: Uses Sobel operators to detect edges in the image (GPU-accelerated via WebGL when available)
+   - **Non-Maximum Suppression**: Thins edges by keeping only local maxima along gradient direction
+   - **Thresholding**: Filters weak edge responses based on configurable sharpness (default: 0.8 for strong edges)
+   - **Hysteresis Thresholding**: Optionally uses dual thresholds to connect weak edges to strong ones
 2. **Grid Initialization**: Creates a regular grid of quadrilateral cells over the image
 3. **Grid Optimization**: Iteratively moves grid corners to align cell edges with detected image edges:
    - For each corner, searches nearby positions
@@ -343,7 +377,7 @@ The edge-aware pixelation algorithm provides superior results by aligning pixel 
 5. **Rendering**: Renders each pixel by determining which cell it belongs to (using spatial hashing for efficiency)
 6. **Color Quantization** (optional): Applies color limiting to the final result
 
-This creates pixel art that preserves sharp edges and important image features while maintaining the pixelated aesthetic.
+This creates pixel art that preserves sharp edges and important image features while maintaining the pixelated aesthetic. The edge sharpness parameter (0-1) controls how aggressively weak edges are filtered, with higher values producing cleaner, more defined edges.
 
 ### Projective Transformation
 

@@ -5,7 +5,7 @@
  * to align with image edges for better pixelation results.
  */
 
-import { getEdgeStrengthInterpolated } from './edgeDetection.js';
+import { getEdgeStrengthInterpolated, getEdgeDensity } from './edgeDetection.js';
 
 /**
  * Tests if a point is inside a quadrilateral using the cross-product method.
@@ -171,6 +171,93 @@ class GridCell {
       a: Math.round(a / count)
     };
   }
+
+  /**
+   * Calculates blended color between average and median based on sharpness.
+   * - sharpness 0: 100% average (soft, blended)
+   * - sharpness 1: 100% median (crisp, dominant color)
+   *
+   * @param {ImageData} imageData - Source image data
+   * @param {number} sharpness - Blend factor (0-1)
+   * @returns {Object} Color {r, g, b, a}
+   */
+  getBlendedColor(imageData, sharpness) {
+    const { data, width } = imageData;
+    const bounds = this.getBounds();
+
+    const minX = Math.max(0, Math.floor(bounds.minX));
+    const minY = Math.max(0, Math.floor(bounds.minY));
+    const maxX = Math.min(width - 1, Math.floor(bounds.maxX));
+    const maxY = Math.min(imageData.height - 1, Math.floor(bounds.maxY));
+
+    const corners = [
+      this.corners[0],
+      this.corners[1],
+      this.corners[2],
+      this.corners[3]
+    ];
+
+    // Sample densely for accurate calculation
+    const sampleStep = Math.max(1, Math.floor(Math.min(
+      (maxX - minX) / 15,
+      (maxY - minY) / 15,
+      2
+    )));
+
+    // Collect all color samples
+    const samples = [];
+    let avgR = 0, avgG = 0, avgB = 0, avgA = 0;
+
+    for (let y = minY; y <= maxY; y += sampleStep) {
+      for (let x = minX; x <= maxX; x += sampleStep) {
+        const pixelCenterX = x + 0.5;
+        const pixelCenterY = y + 0.5;
+
+        if (pointInQuadrilateral(pixelCenterX, pixelCenterY, corners)) {
+          const idx = (y * width + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const a = data[idx + 3];
+
+          samples.push({ r, g, b, a });
+          avgR += r;
+          avgG += g;
+          avgB += b;
+          avgA += a;
+        }
+      }
+    }
+
+    if (samples.length === 0) {
+      return this.getAverageColor(imageData);
+    }
+
+    // Calculate average color
+    const count = samples.length;
+    avgR = Math.round(avgR / count);
+    avgG = Math.round(avgG / count);
+    avgB = Math.round(avgB / count);
+    avgA = Math.round(avgA / count);
+
+    // Calculate median color
+    samples.sort((a, b) => (a.r + a.g + a.b) - (b.r + b.g + b.b));
+    const medianIdx = Math.floor(samples.length / 2);
+    const medR = samples[medianIdx].r;
+    const medG = samples[medianIdx].g;
+    const medB = samples[medianIdx].b;
+    const medA = samples[medianIdx].a;
+
+    // Blend between average and median based on sharpness
+    // sharpness 0 = 100% average, sharpness 1 = 100% median
+    const t = sharpness;
+    return {
+      r: Math.round(avgR * (1 - t) + medR * t),
+      g: Math.round(avgG * (1 - t) + medG * t),
+      b: Math.round(avgB * (1 - t) + medB * t),
+      a: Math.round(avgA * (1 - t) + medA * t)
+    };
+  }
 }
 
 /**
@@ -217,6 +304,7 @@ export function createInitialGrid(width, height, gridSize) {
 
 /**
  * Evaluates how well a grid edge (line between two corners) aligns with image edges.
+ * Uses nearest-neighbor sampling by default for crisp edge detection.
  *
  * @param {Float32Array} edgeMap - Edge map
  * @param {number} width - Image width
@@ -234,9 +322,11 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
 
   if (length < 1) return 0;
 
-  // Sample points along the edge
-  const numSamples = Math.max(2, Math.floor(length));
-  let totalEdgeStrength = 0;
+  // Sample points along the edge - use more samples for better precision
+  const numSamples = Math.max(3, Math.ceil(length * 1.5));
+  let edgeHits = 0;
+  let consecutiveHits = 0;
+  let maxConsecutiveHits = 0;
 
   for (let i = 0; i <= numSamples; i++) {
     const t = i / numSamples;
@@ -247,11 +337,31 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
     const clampedX = Math.max(0, Math.min(width - 1, x));
     const clampedY = Math.max(0, Math.min(height - 1, y));
 
-    const strength = getEdgeStrengthInterpolated(edgeMap, width, height, clampedX, clampedY);
-    totalEdgeStrength += strength;
+    // Use nearest-neighbor (non-interpolated) for crisp edge detection
+    const strength = getEdgeStrengthInterpolated(edgeMap, width, height, clampedX, clampedY, false);
+
+    // Count edge hits (binary edges mean strength is either 0 or 1)
+    if (strength > 0) {
+      edgeHits++;
+      consecutiveHits++;
+      maxConsecutiveHits = Math.max(maxConsecutiveHits, consecutiveHits);
+    } else {
+      consecutiveHits = 0;
+    }
   }
 
-  return totalEdgeStrength / (numSamples + 1);
+  // Score based on edge hits and consecutive runs
+  // This rewards lines that follow edges continuously rather than just crossing them
+  const hitRatio = edgeHits / (numSamples + 1);
+  const consecutiveBonus = maxConsecutiveHits / (numSamples + 1);
+
+  // Check if corner points themselves are on edges (bonus for precise alignment)
+  const startOnEdge = getEdgeStrengthInterpolated(edgeMap, width, height,
+    Math.max(0, Math.min(width - 1, x1)),
+    Math.max(0, Math.min(height - 1, y1)), false) > 0 ? 0.2 : 0;
+
+  // Weight: hit ratio (40%), consecutive runs (40%), corner on edge (20%)
+  return hitRatio * 0.4 + consecutiveBonus * 0.4 + startOnEdge;
 }
 
 /**
@@ -265,18 +375,27 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
  * @param {number} options.searchSteps - Number of search steps per iteration
  * @param {number} options.numIterations - Number of optimization iterations
  * @param {number} options.stepSize - Size of each movement step
+ * @param {number} options.edgeSharpness - Edge sharpness (0-1), higher = less damping for crisper snapping
  * @returns {Object} Optimized grid
  */
 export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) {
   const {
     searchSteps = 9,
     numIterations = 2,
-    stepSize = 1.0
+    stepSize = 1.0,
+    edgeSharpness = 0.8
   } = options;
 
   const { corners, cells } = grid;
   const rows = corners.length;
   const cols = corners[0].length;
+
+  // Calculate base damping based on edge sharpness
+  // Higher sharpness = less damping = corners snap more directly to edges
+  // At sharpness 0: damping ranges 0.3-0.5 (conservative)
+  // At sharpness 1: damping ranges 0.8-1.0 (aggressive, nearly full movement)
+  const baseDamping = 0.3 + edgeSharpness * 0.5; // 0.3 to 0.8
+  const dampingRange = 0.2 * (1 - edgeSharpness * 0.5); // 0.2 to 0.1
 
   // Optimization loop
   for (let iteration = 0; iteration < numIterations; iteration++) {
@@ -318,7 +437,6 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
         // searchSteps likely represents a grid (e.g., 9 = 3x3, 25 = 5x5)
         const gridSize = Math.floor(Math.sqrt(searchSteps));
         const halfGrid = Math.floor(gridSize / 2);
-        const searchRadius = stepSize * halfGrid;
 
         for (let dy = -halfGrid; dy <= halfGrid; dy++) {
           for (let dx = -halfGrid; dx <= halfGrid; dx++) {
@@ -349,8 +467,10 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
           }
         }
 
-        // Update corner position (with damping to prevent excessive movement)
-        const damping = 0.3 + (0.2 * (1 - iteration / numIterations)); // More aggressive early, conservative later
+        // Update corner position with sharpness-aware damping
+        // More aggressive early iterations, slightly more conservative later
+        const iterationProgress = iteration / Math.max(1, numIterations - 1);
+        const damping = baseDamping + dampingRange * (1 - iterationProgress);
         const deltaX = bestX - corner.x;
         const deltaY = bestY - corner.y;
         corner.x += deltaX * damping;
@@ -368,17 +488,20 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
  *
  * @param {Object} grid - Optimized grid
  * @param {ImageData} imageData - Source image data
+ * @param {Float32Array} edgeMap - Optional edge map (unused, kept for API compatibility)
+ * @param {number} edgeSharpness - Edge sharpness (0-1), smoothly blends between average and median colors
  * @returns {ImageData} Rendered pixelated image
  */
-export function renderGrid(grid, imageData) {
+export function renderGrid(grid, imageData, edgeMap = null, edgeSharpness = 0.8) {
   const { width, height } = imageData;
   const output = new ImageData(width, height);
   const outputData = output.data;
 
   // Pre-calculate colors for all cells
+  // Uses smooth blending between average (soft) and median (crisp) based on sharpness
   const cellColors = [];
   for (let i = 0; i < grid.cells.length; i++) {
-    cellColors.push(grid.cells[i].getAverageColor(imageData));
+    cellColors.push(grid.cells[i].getBlendedColor(imageData, edgeSharpness));
   }
 
   // Build spatial hash for fast cell lookup
