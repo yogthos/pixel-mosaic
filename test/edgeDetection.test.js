@@ -207,7 +207,7 @@ describe('Edge Detection', () => {
   });
 
   describe('getEdgeStrengthInterpolated', () => {
-    it('should interpolate edge strength at fractional coordinates', () => {
+    it('should interpolate edge strength at fractional coordinates when interpolate=true', () => {
       const width = 10;
       const height = 10;
       const edgeMap = new Float32Array(width * height);
@@ -218,9 +218,25 @@ describe('Edge Detection', () => {
       edgeMap[1 * width + 0] = 0.0; // (0, 1)
       edgeMap[1 * width + 1] = 1.0; // (1, 1)
 
-      // At (0.5, 0.5), should be average
-      const strength = getEdgeStrengthInterpolated(edgeMap, width, height, 0.5, 0.5);
+      // At (0.5, 0.5), should be average when using bilinear interpolation
+      const strength = getEdgeStrengthInterpolated(edgeMap, width, height, 0.5, 0.5, true);
       expect(strength).toBeCloseTo(0.5, 5);
+    });
+
+    it('should use nearest-neighbor by default for crisp edges', () => {
+      const width = 10;
+      const height = 10;
+      const edgeMap = new Float32Array(width * height);
+
+      // Set values at corners
+      edgeMap[0 * width + 0] = 0.0; // (0, 0)
+      edgeMap[0 * width + 1] = 1.0; // (1, 0)
+      edgeMap[1 * width + 0] = 0.0; // (0, 1)
+      edgeMap[1 * width + 1] = 1.0; // (1, 1)
+
+      // At (0.5, 0.5), should round to (1, 1) which is 1.0 with nearest-neighbor (default)
+      const strength = getEdgeStrengthInterpolated(edgeMap, width, height, 0.5, 0.5);
+      expect(strength).toBe(1.0);
     });
 
     it('should clamp coordinates to valid range', () => {
@@ -296,11 +312,32 @@ describe('Edge Detection', () => {
 
       const thresholded = applyThresholding(edgeMap, width, height, {
         threshold: 0.2,
-        usePercentile: false // Use absolute threshold for this test
+        usePercentile: false, // Use absolute threshold for this test
+        binarize: false // Preserve original magnitudes for this test
       });
 
       expect(thresholded[5 * width + 5]).toBeCloseTo(0.8, 5); // Above threshold
       expect(thresholded[5 * width + 6]).toBeCloseTo(0.3, 5); // Above threshold
+      expect(thresholded[5 * width + 7]).toBe(0); // Below threshold
+    });
+
+    it('should binarize edges by default for crisp results', () => {
+      const width = 10;
+      const height = 10;
+      const edgeMap = new Float32Array(width * height);
+
+      // Set some values
+      edgeMap[5 * width + 5] = 0.8;
+      edgeMap[5 * width + 6] = 0.3;
+      edgeMap[5 * width + 7] = 0.05;
+
+      const thresholded = applyThresholding(edgeMap, width, height, {
+        threshold: 0.2,
+        usePercentile: false // Use absolute threshold for this test
+      });
+
+      expect(thresholded[5 * width + 5]).toBe(1.0); // Above threshold, binarized to 1
+      expect(thresholded[5 * width + 6]).toBe(1.0); // Above threshold, binarized to 1
       expect(thresholded[5 * width + 7]).toBe(0); // Below threshold
     });
 
@@ -328,12 +365,33 @@ describe('Edge Detection', () => {
       const thresholded = applyThresholding(edgeMap, width, height, {
         highThreshold: 0.8,
         lowThreshold: 0.4,
-        usePercentile: false // Disable percentile for this test to use absolute thresholds
+        usePercentile: false, // Disable percentile for this test to use absolute thresholds
+        binarize: false // Preserve original magnitudes for this test
       });
 
       expect(thresholded[5 * width + 5]).toBeCloseTo(0.9, 5); // Strong edge kept
       expect(thresholded[5 * width + 6]).toBeCloseTo(0.5, 5); // Connected weak edge kept
       expect(thresholded[2 * width + 2]).toBe(0); // Isolated weak edge removed
+    });
+
+    it('should binarize hysteresis edges when binarize=true', () => {
+      const width = 10;
+      const height = 10;
+      const edgeMap = new Float32Array(width * height);
+
+      // Create pattern: strong edge, weak edge directly connected
+      edgeMap[5 * width + 5] = 0.9; // Strong edge
+      edgeMap[5 * width + 6] = 0.5; // Weak edge directly connected to strong (adjacent)
+
+      const thresholded = applyThresholding(edgeMap, width, height, {
+        highThreshold: 0.8,
+        lowThreshold: 0.4,
+        usePercentile: false,
+        binarize: true
+      });
+
+      expect(thresholded[5 * width + 5]).toBe(1.0); // Strong edge binarized to 1
+      expect(thresholded[5 * width + 6]).toBe(1.0); // Connected weak edge binarized to 1
     });
   });
 });

@@ -87,10 +87,11 @@ export function applyNonMaximumSuppression(magnitudeMap, directionMap, width, he
  * @param {number} options.highThreshold - High threshold for hysteresis (optional)
  * @param {number} options.lowThreshold - Low threshold for hysteresis (optional)
  * @param {boolean} options.usePercentile - Use percentile-based thresholding (default: true)
+ * @param {boolean} options.binarize - If true, output binary edges (0 or 1) for crisp results (default: true)
  * @returns {Float32Array} Thresholded edge map
  */
 export function applyThresholding(edgeMap, width, height, options = {}) {
-  const { threshold = 0.1, highThreshold = null, lowThreshold = null, usePercentile = true } = options;
+  const { threshold = 0.1, highThreshold = null, lowThreshold = null, usePercentile = true, binarize = true } = options;
   const thresholded = new Float32Array(edgeMap.length);
 
   // Calculate percentile-based threshold if enabled
@@ -117,18 +118,8 @@ export function applyThresholding(edgeMap, width, height, options = {}) {
       const index = Math.min(nonZeroValues.length - 1, Math.max(0, percentileIndex));
       actualThreshold = nonZeroValues[index];
 
-      // Additional boost: for high thresholds, be even more aggressive
-      // This ensures maximum sharpness actually filters significantly
-      if (threshold >= 0.8) {
-        // For very high thresholds, use a slightly higher percentile to be more aggressive
-        const boostPercentile = Math.min(0.99, threshold + 0.05);
-        const boostIndex = Math.ceil(nonZeroValues.length * boostPercentile);
-        const boostThreshold = nonZeroValues[Math.min(nonZeroValues.length - 1, Math.max(0, boostIndex))];
-        // Use the more aggressive threshold
-        if (boostThreshold > actualThreshold) {
-          actualThreshold = boostThreshold;
-        }
-      }
+      // Note: Removed aggressive boost for high thresholds
+      // We need to preserve enough edges for grid alignment to work effectively
     }
   }
 
@@ -164,7 +155,7 @@ export function applyThresholding(edgeMap, width, height, options = {}) {
     for (let i = 0; i < edgeMap.length; i++) {
       if (edgeMap[i] >= actualHighThreshold) {
         strongEdges.add(i);
-        thresholded[i] = edgeMap[i];
+        thresholded[i] = binarize ? 1.0 : edgeMap[i];
       } else if (edgeMap[i] >= actualLowThreshold) {
         weakEdges.add(i);
         thresholded[i] = 0; // Will be determined in second pass
@@ -197,14 +188,19 @@ export function applyThresholding(edgeMap, width, height, options = {}) {
         }
 
         if (connected) {
-          thresholded[i] = edgeMap[i];
+          thresholded[i] = binarize ? 1.0 : edgeMap[i];
         }
       }
     }
   } else {
     // Simple thresholding (using percentile-based threshold if enabled)
+    // Binarize by default for crisp edges
     for (let i = 0; i < edgeMap.length; i++) {
-      thresholded[i] = edgeMap[i] >= actualThreshold ? edgeMap[i] : 0;
+      if (edgeMap[i] >= actualThreshold) {
+        thresholded[i] = binarize ? 1.0 : edgeMap[i];
+      } else {
+        thresholded[i] = 0;
+      }
     }
   }
 
@@ -232,15 +228,13 @@ export function calculateEdgeMap(imageData, options = {}) {
     lowThreshold = null
   } = options;
 
-  // Map edgeSharpness (0-1) to threshold (0.0-0.98)
-  // edgeSharpness 0.0 -> threshold 0.0 (soft, no thresholding - keep all edges)
-  // edgeSharpness 0.5 -> threshold 0.49 (moderate - keep top 51%)
-  // edgeSharpness 0.8 -> threshold 0.784 (strong default - keep top 21.6%)
-  // edgeSharpness 1.0 -> threshold 0.98 (very sharp - keep top 2%)
-  // Using percentile-based thresholding for better adaptation to edge distribution
-  // Higher range (0.98) for more aggressive filtering at maximum sharpness
+  // Map edgeSharpness (0-1) to threshold for edge detection
+  // edgeSharpness 0.0 -> threshold 0.1 (keep top 90% - very soft, many edges)
+  // edgeSharpness 0.5 -> threshold 0.35 (keep top 65% - moderate)
+  // edgeSharpness 1.0 -> threshold 0.6 (keep top 40% - sharp, focused edges)
+  // Wider range allows more visible difference between soft and sharp settings
   if (threshold === null) {
-    threshold = edgeSharpness * 0.98;
+    threshold = 0.1 + edgeSharpness * 0.5;
   }
 
   const { data, width, height } = imageData;
@@ -389,20 +383,31 @@ export function getEdgeStrength(edgeMap, width, x, y) {
 }
 
 /**
- * Gets the edge strength at a sub-pixel coordinate using bilinear interpolation.
+ * Gets the edge strength at a sub-pixel coordinate.
+ * Supports both nearest-neighbor (crisp) and bilinear (smooth) modes.
  *
  * @param {Float32Array} edgeMap - Edge map from calculateEdgeMap
  * @param {number} width - Image width
  * @param {number} height - Image height
  * @param {number} x - X coordinate (can be fractional)
  * @param {number} y - Y coordinate (can be fractional)
- * @returns {number} Interpolated edge strength (0-1)
+ * @param {boolean} interpolate - If true, use bilinear interpolation; if false, use nearest-neighbor (default: false for crisp edges)
+ * @returns {number} Edge strength (0-1)
  */
-export function getEdgeStrengthInterpolated(edgeMap, width, height, x, y) {
+export function getEdgeStrengthInterpolated(edgeMap, width, height, x, y, interpolate = false) {
   // Clamp coordinates to valid range
   x = Math.max(0, Math.min(width - 1, x));
   y = Math.max(0, Math.min(height - 1, y));
 
+  if (!interpolate) {
+    // Nearest-neighbor: round to nearest pixel for crisp edge detection
+    const px = Math.round(x);
+    const py = Math.round(y);
+    const idx = py * width + px;
+    return edgeMap[idx] || 0;
+  }
+
+  // Bilinear interpolation (smooth but can blur edges)
   const x1 = Math.floor(x);
   const y1 = Math.floor(y);
   const x2 = Math.min(width - 1, x1 + 1);
@@ -421,8 +426,44 @@ export function getEdgeStrengthInterpolated(edgeMap, width, height, x, y) {
   const v21 = edgeMap[idx21] || 0;
   const v22 = edgeMap[idx22] || 0;
 
-  // Bilinear interpolation
   const v1 = v11 * (1 - fx) + v21 * fx;
   const v2 = v12 * (1 - fx) + v22 * fx;
   return v1 * (1 - fy) + v2 * fy;
+}
+
+/**
+ * Counts the number of edge pixels in a small region around the given point.
+ * This is more robust than single-pixel lookup for grid alignment.
+ *
+ * @param {Float32Array} edgeMap - Edge map from calculateEdgeMap
+ * @param {number} width - Image width
+ * @param {number} height - Image height
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ * @param {number} radius - Radius to search (default: 1)
+ * @returns {number} Edge density (0-1)
+ */
+export function getEdgeDensity(edgeMap, width, height, x, y, radius = 1) {
+  const px = Math.round(x);
+  const py = Math.round(y);
+
+  let edgeCount = 0;
+  let totalCount = 0;
+
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const nx = px + dx;
+      const ny = py + dy;
+
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        const idx = ny * width + nx;
+        if (edgeMap[idx] > 0) {
+          edgeCount++;
+        }
+        totalCount++;
+      }
+    }
+  }
+
+  return totalCount > 0 ? edgeCount / totalCount : 0;
 }

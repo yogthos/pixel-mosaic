@@ -176,15 +176,13 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
     lowThreshold = null
   } = options;
 
-  // Map edgeSharpness (0-1) to threshold (0.0-0.98)
-  // edgeSharpness 0.0 -> threshold 0.0 (soft, no thresholding - keep all edges)
-  // edgeSharpness 0.5 -> threshold 0.49 (moderate - keep top 51%)
-  // edgeSharpness 0.8 -> threshold 0.784 (strong default - keep top 21.6%)
-  // edgeSharpness 1.0 -> threshold 0.98 (very sharp - keep top 2%)
-  // Using percentile-based thresholding for better adaptation to edge distribution
-  // Higher range (0.98) for more aggressive filtering at maximum sharpness
+  // Map edgeSharpness (0-1) to threshold for edge detection
+  // edgeSharpness 0.0 -> threshold 0.1 (keep top 90% - very soft, many edges)
+  // edgeSharpness 0.5 -> threshold 0.35 (keep top 65% - moderate)
+  // edgeSharpness 1.0 -> threshold 0.6 (keep top 40% - sharp, focused edges)
+  // Wider range allows more visible difference between soft and sharp settings
   if (threshold === null) {
-    threshold = edgeSharpness * 0.98;
+    threshold = 0.1 + edgeSharpness * 0.5;
   }
 
   const { width, height } = imageData;

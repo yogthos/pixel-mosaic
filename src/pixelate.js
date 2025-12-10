@@ -344,11 +344,18 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
 
   // Optimize grid corners to align with edges
-  // The stepSize should be a fraction of the grid cell size for fine-grained movement
+  // Scale search parameters based on edgeSharpness for crisper results at higher settings
+  // Higher sharpness = larger search radius and more aggressive snapping
+  const sharpnessScale = 0.5 + edgeSharpness * 1.5; // Range: 0.5 to 2.0
+  const effectiveStepSize = Math.max(1, pixelizationFactor * 0.3 * sharpnessScale);
+  const effectiveSearchSteps = Math.max(searchSteps, Math.floor(9 + edgeSharpness * 16)); // 9 to 25
+  const effectiveIterations = Math.max(numIterations, Math.floor(2 + edgeSharpness * 3)); // 2 to 5
+
   optimizeGridCorners(grid, edgeMap, sourceWidth, sourceHeight, {
-    searchSteps,
-    numIterations,
-    stepSize: Math.max(1, pixelizationFactor * 0.25) // Smaller steps for better precision
+    searchSteps: effectiveSearchSteps,
+    numIterations: effectiveIterations,
+    stepSize: effectiveStepSize,
+    edgeSharpness // Pass sharpness to control damping
   });
 
   // Report GPU usage if callback provided
@@ -356,8 +363,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     onProgress({ usingGPU });
   }
 
-  // Render optimized grid
-  let outputImageData = renderGrid(grid, imageData);
+  // Render optimized grid with edge-aware color sampling
+  // Pass edgeSharpness to control color sampling method
+  let outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness);
 
   // Apply contrast adjustment if requested
   if (contrast !== 1.0) {
