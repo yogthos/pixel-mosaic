@@ -4,6 +4,10 @@
  * Provides functions to pixelate images using canvas-based techniques.
  */
 
+import { calculateEdgeMap } from './edgeDetection.js';
+import { calculateEdgeMapWebGL } from './webglEdgeDetection.js';
+import { createInitialGrid, optimizeGridCorners, renderGrid } from './gridOptimization.js';
+
 /**
  * Pixelates an image by scaling it down and then back up with nearest-neighbor interpolation.
  *
@@ -90,7 +94,7 @@ export function pixelateImage(image, pixelSize, options = {}) {
 
 /**
  * Quantizes colors in an image to reduce the color palette.
- * Uses a simple median cut algorithm.
+ * Uses an improved algorithm that ensures color diversity.
  *
  * @param {ImageData} imageData - Image data to quantize
  * @param {number} maxColors - Maximum number of colors to use
@@ -100,46 +104,117 @@ function quantizeColors(imageData, maxColors) {
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
-  const colorMap = new Map();
 
-  // Build color frequency map
-  for (let i = 0; i < data.length; i += 4) {
+  // Sample colors from the image (use every Nth pixel for performance)
+  const sampleStep = Math.max(1, Math.floor(Math.sqrt(width * height) / 100));
+  const colorSamples = [];
+
+  for (let i = 0; i < data.length; i += 4 * sampleStep) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const key = `${r},${g},${b}`;
-    colorMap.set(key, (colorMap.get(key) || 0) + 1);
+    colorSamples.push({ r, g, b });
   }
 
-  // If we already have fewer colors than the limit, return original
-  if (colorMap.size <= maxColors) {
-    return imageData;
+  // Use k-means-like approach: initialize with diverse colors
+  const palette = [];
+
+  if (colorSamples.length <= maxColors) {
+    // Not enough unique colors, use all samples
+    const uniqueColors = new Map();
+    for (const color of colorSamples) {
+      const key = `${color.r},${color.g},${color.b}`;
+      if (!uniqueColors.has(key)) {
+        uniqueColors.set(key, color);
+        if (uniqueColors.size >= maxColors) break;
+      }
+    }
+    palette.push(...Array.from(uniqueColors.values()));
+  } else {
+    // Initialize palette with diverse colors using a simple approach
+    // First, add the most common color
+    const colorFreq = new Map();
+    for (const color of colorSamples) {
+      const key = `${color.r},${color.g},${color.b}`;
+      colorFreq.set(key, (colorFreq.get(key) || 0) + 1);
+    }
+
+    const sortedByFreq = Array.from(colorFreq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([key]) => {
+        const [r, g, b] = key.split(',').map(Number);
+        return { r, g, b };
+      });
+
+    // Add first color (most common)
+    palette.push(sortedByFreq[0]);
+
+    // Add remaining colors that are most different from existing palette
+    while (palette.length < maxColors && palette.length < sortedByFreq.length) {
+      let maxMinDist = -1;
+      let bestColor = null;
+
+      for (const candidate of sortedByFreq) {
+        // Skip if already in palette
+        if (palette.some(c => c.r === candidate.r && c.g === candidate.g && c.b === candidate.b)) {
+          continue;
+        }
+
+        // Find minimum distance to any color in current palette
+        let minDist = Infinity;
+        for (const paletteColor of palette) {
+          const dist = Math.sqrt(
+            Math.pow(candidate.r - paletteColor.r, 2) +
+            Math.pow(candidate.g - paletteColor.g, 2) +
+            Math.pow(candidate.b - paletteColor.b, 2)
+          );
+          if (dist < minDist) {
+            minDist = dist;
+          }
+        }
+
+        // Prefer colors that are most different from existing palette
+        if (minDist > maxMinDist) {
+          maxMinDist = minDist;
+          bestColor = candidate;
+        }
+      }
+
+      if (bestColor) {
+        palette.push(bestColor);
+      } else {
+        // If no more diverse colors, add remaining most common ones
+        for (const color of sortedByFreq) {
+          if (palette.length >= maxColors) break;
+          if (!palette.some(c => c.r === color.r && c.g === color.g && c.b === color.b)) {
+            palette.push(color);
+          }
+        }
+        break;
+      }
+    }
   }
 
-  // Simple color quantization: find most common colors and map others to nearest
-  const sortedColors = Array.from(colorMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, maxColors)
-    .map(([key]) => {
-      const [r, g, b] = key.split(',').map(Number);
-      return { r, g, b };
-    });
+  // Ensure we have at least one color
+  if (palette.length === 0) {
+    palette.push({ r: 128, g: 128, b: 128 });
+  }
 
   // Create output image data
   const output = new ImageData(width, height);
   const outputData = output.data;
 
-  // Map each pixel to nearest color
+  // Map each pixel to nearest color in palette
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
     const a = data[i + 3];
 
-    // Find nearest color
+    // Find nearest color in palette
     let minDist = Infinity;
-    let nearestColor = sortedColors[0];
-    for (const color of sortedColors) {
+    let nearestColor = palette[0];
+    for (const color of palette) {
       const dist = Math.sqrt(
         Math.pow(r - color.r, 2) +
         Math.pow(g - color.g, 2) +
@@ -158,6 +233,112 @@ function quantizeColors(imageData, maxColors) {
   }
 
   return output;
+}
+
+/**
+ * Loads an image from a URL or file and returns a promise that resolves with the image element.
+ *
+ * @param {string|File} source - URL string or File object
+ * @returns {Promise<HTMLImageElement>} Promise that resolves with the loaded image
+ */
+/**
+ * Edge-aware pixelation using adaptive grid optimization.
+ *
+ * @param {HTMLImageElement|HTMLCanvasElement|ImageData} image - Source image to pixelate
+ * @param {number} pixelizationFactor - Approximate size of each grid cell
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.returnCanvas - If true, returns canvas element; otherwise returns ImageData
+ * @param {number} options.searchSteps - Number of search steps per corner (default: 9)
+ * @param {number} options.numIterations - Number of optimization iterations (default: 2)
+ * @returns {HTMLCanvasElement|ImageData} Pixelated image
+ */
+export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
+  const {
+    returnCanvas = false,
+    searchSteps = 9,
+    numIterations = 2,
+    onProgress = null,
+    colorLimit = null
+  } = options;
+
+  // Get image dimensions
+  let sourceWidth, sourceHeight, imageData;
+
+  if (image instanceof ImageData) {
+    sourceWidth = image.width;
+    sourceHeight = image.height;
+    imageData = image;
+  } else {
+    // Convert to ImageData
+    const canvas = document.createElement('canvas');
+    if (image instanceof HTMLCanvasElement) {
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+    } else if (image instanceof HTMLImageElement) {
+      sourceWidth = image.naturalWidth || image.width;
+      sourceHeight = image.naturalHeight || image.height;
+      canvas.width = sourceWidth;
+      canvas.height = sourceHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+    } else {
+      throw new Error('Unsupported image type. Use Image, Canvas, or ImageData.');
+    }
+    imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    sourceWidth = canvas.width;
+    sourceHeight = canvas.height;
+  }
+
+  // Calculate edge map - try WebGL first, fallback to CPU
+  let edgeMap = calculateEdgeMapWebGL(imageData);
+  let usingGPU = false;
+  if (!edgeMap) {
+    // WebGL not available, use CPU implementation
+    edgeMap = calculateEdgeMap(imageData);
+  } else {
+    usingGPU = true;
+  }
+
+  // Create initial grid
+  const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
+
+  // Optimize grid corners to align with edges
+  // The stepSize should be a fraction of the grid cell size for fine-grained movement
+  optimizeGridCorners(grid, edgeMap, sourceWidth, sourceHeight, {
+    searchSteps,
+    numIterations,
+    stepSize: Math.max(1, pixelizationFactor * 0.25) // Smaller steps for better precision
+  });
+
+  // Report GPU usage if callback provided
+  if (onProgress) {
+    onProgress({ usingGPU });
+  }
+
+  // Render optimized grid
+  let outputImageData = renderGrid(grid, imageData);
+
+  // Apply color quantization if requested
+  if (colorLimit && colorLimit > 0) {
+    outputImageData = quantizeColors(outputImageData, colorLimit);
+  }
+
+  if (returnCanvas) {
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = sourceWidth;
+    outputCanvas.height = sourceHeight;
+    const ctx = outputCanvas.getContext('2d');
+    ctx.putImageData(outputImageData, 0, 0);
+
+    // Attach metadata to canvas
+    outputCanvas._usingGPU = usingGPU;
+
+    return outputCanvas;
+  } else {
+    return outputImageData;
+  }
 }
 
 /**

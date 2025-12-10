@@ -148,8 +148,8 @@
 
             <div class="control-group">
                 <label for="pixelSize">Pixel Size: <span id="pixelSizeValue">3</span></label>
-                <input type="range" id="pixelSize" min="2" max="32" value="3">
-                <input type="number" id="pixelSizeNumber" min="2" max="32" value="3">
+                <input type="range" id="pixelSize" min="2" max="128" value="3">
+                <input type="number" id="pixelSizeNumber" min="2" max="128" value="3">
             </div>
 
             <div class="control-group">
@@ -163,6 +163,22 @@
                     <input type="checkbox" id="useColorLimit" checked>
                     Enable Color Limiting
                 </label>
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="useEdgeAware">
+                    Edge-Aware Pixelation
+                </label>
+                <div id="gpuIndicator" style="display: none; margin-top: 4px; font-size: 0.85em; color: #666;">
+                    <span id="gpuStatus">Checking GPU...</span>
+                </div>
+            </div>
+
+            <div class="control-group" id="optimizationIterationsGroup" style="display: none;">
+                <label for="optimizationIterations">Optimization Iterations: <span id="optimizationIterationsValue">2</span></label>
+                <input type="range" id="optimizationIterations" min="1" max="10" value="2">
+                <input type="number" id="optimizationIterationsNumber" min="1" max="10" value="2">
             </div>
 
             <div class="control-group">
@@ -199,12 +215,12 @@
         </div>
 
         <div class="info">
-            <strong>How to use:</strong> Upload an image, adjust the pixel size and color limit sliders, then click "Pixelate Image" to see the result. Enable "Apply Rotation" to see a projective transformation example.
+            <strong>How to use:</strong> Upload an image, adjust the pixel size (up to 128) and color limit sliders, then click "Pixelate Image" to see the result. Enable "Edge-Aware Pixelation" for adaptive grid optimization - you can control how many optimization iterations the algorithm performs. Enable "Apply Rotation" to see a projective transformation example.
         </div>
     </div>
 
     <script type="module">
-        import { pixelateImage, loadImage } from './src/pixelate.js';
+        import { pixelateImage, pixelateImageEdgeAware, loadImage } from './src/pixelate.js';
         import { applyProjection, rotationMatrix } from './src/projection.js';
 
         const elements = {
@@ -216,6 +232,13 @@
             colorLimitNumber: document.getElementById('colorLimitNumber'),
             colorLimitValue: document.getElementById('colorLimitValue'),
             useColorLimit: document.getElementById('useColorLimit'),
+            useEdgeAware: document.getElementById('useEdgeAware'),
+            gpuIndicator: document.getElementById('gpuIndicator'),
+            gpuStatus: document.getElementById('gpuStatus'),
+            optimizationIterationsGroup: document.getElementById('optimizationIterationsGroup'),
+            optimizationIterationsSlider: document.getElementById('optimizationIterations'),
+            optimizationIterationsNumber: document.getElementById('optimizationIterationsNumber'),
+            optimizationIterationsValue: document.getElementById('optimizationIterationsValue'),
             useProjection: document.getElementById('useProjection'),
             rotationAngleSlider: document.getElementById('rotationAngle'),
             rotationAngleNumber: document.getElementById('rotationAngleNumber'),
@@ -251,9 +274,20 @@
             syncFromSlider();
         }
 
-        syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 32, 3);
+        syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
+        syncControl(elements.optimizationIterationsSlider, elements.optimizationIterationsNumber, elements.optimizationIterationsValue, 1, 10, 2);
         syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
+
+        // Show/hide optimization iterations control based on edge-aware mode
+        elements.useEdgeAware.addEventListener('change', () => {
+            const isEnabled = elements.useEdgeAware.checked;
+            elements.optimizationIterationsGroup.style.display = isEnabled ? 'block' : 'none';
+            elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
+            if (!isEnabled) {
+                elements.gpuStatus.textContent = '';
+            }
+        });
 
         // Handle image upload
         elements.imageInput.addEventListener('change', async (e) => {
@@ -284,7 +318,7 @@
         });
 
         // Handle pixelation
-        elements.pixelateBtn.addEventListener('click', () => {
+        elements.pixelateBtn.addEventListener('click', async () => {
             if (!currentImage) {
                 alert('Please upload an image first.');
                 return;
@@ -294,15 +328,51 @@
             const colorLimit = elements.useColorLimit.checked
                 ? parseInt(elements.colorLimitSlider.value)
                 : null;
+            const useEdgeAware = elements.useEdgeAware.checked;
 
             try {
                 elements.pixelateBtn.disabled = true;
-                elements.pixelateBtn.textContent = 'Processing...';
+                elements.pixelateBtn.textContent = useEdgeAware ? 'Processing (Edge-Aware)...' : 'Processing...';
 
-                const pixelated = pixelateImage(currentImage, pixelSize, {
-                    returnCanvas: true,
-                    colorLimit: colorLimit
-                });
+                let pixelated;
+                if (useEdgeAware) {
+                    // Use edge-aware pixelation
+                    const numIterations = parseInt(elements.optimizationIterationsSlider.value);
+                    elements.gpuStatus.textContent = 'Processing...';
+
+                    pixelated = await pixelateImageEdgeAware(currentImage, pixelSize, {
+                        returnCanvas: true,
+                        searchSteps: 9,
+                        numIterations: numIterations,
+                        colorLimit: colorLimit,
+                        onProgress: (info) => {
+                            if (info.usingGPU) {
+                                elements.gpuStatus.textContent = '✓ Using GPU acceleration';
+                                elements.gpuStatus.style.color = '#4caf50';
+                            } else {
+                                elements.gpuStatus.textContent = '⚠ Using CPU (GPU not available)';
+                                elements.gpuStatus.style.color = '#ff9800';
+                            }
+                        }
+                    });
+
+                    // Also check canvas metadata as fallback
+                    if (pixelated._usingGPU !== undefined) {
+                        if (pixelated._usingGPU) {
+                            elements.gpuStatus.textContent = '✓ Using GPU acceleration';
+                            elements.gpuStatus.style.color = '#4caf50';
+                        } else {
+                            elements.gpuStatus.textContent = '⚠ Using CPU (GPU not available)';
+                            elements.gpuStatus.style.color = '#ff9800';
+                        }
+                    }
+                } else {
+                    // Use simple pixelation
+                    pixelated = pixelateImage(currentImage, pixelSize, {
+                        returnCanvas: true,
+                        colorLimit: colorLimit
+                    });
+                }
 
                 elements.pixelatedCanvas.width = pixelated.width;
                 elements.pixelatedCanvas.height = pixelated.height;

@@ -4,14 +4,16 @@
 
 A canvas-based library for pixelating images and applying projective transformations. Create pixel art effects with color quantization and advanced image warping.
 
-This library implements canvas-based techniques for pixelating images.
+This library implements canvas-based techniques for pixelating images, including an advanced edge-aware algorithm that aligns pixel boundaries with image edges.
 
 ## Features
 
 - **Simple Pixelation**: Scale down and up images with nearest-neighbor interpolation for crisp pixel art effects
-- **Color Quantization**: Reduce color palette using a median cut algorithm
+- **Edge-Aware Pixelation**: Advanced algorithm that detects image edges and aligns pixel grid boundaries with them for sharper, more natural-looking pixel art
+- **WebGL Acceleration**: GPU-accelerated edge detection for faster processing (with CPU fallback)
+- **Color Quantization**: Reduce color palette using an improved diversity-maximizing algorithm
 - **Projective Transformation**: Apply homography transformations for advanced image warping
-- **Zero Dependencies**: Uses only native Canvas API - no external libraries required
+- **Zero Dependencies**: Uses only native Canvas and WebGL APIs - no external libraries required
 
 ## Installation
 
@@ -49,24 +51,39 @@ npx http-server -p 8000
    http://localhost:8000/index.html
    ```
 
-3. Upload an image and adjust the pixel size and color limit sliders
+3. Upload an image and adjust the controls:
+   - **Pixel Size**: Size of pixel blocks (higher = larger pixels)
+   - **Color Limit**: Maximum number of colors in the palette
+   - **Edge-Aware Pixelation**: Enable advanced edge-aligned pixelation
+   - **Optimization Iterations**: Number of grid optimization steps (when edge-aware is enabled)
 
 ### Using as an NPM Package
 
 ```javascript
-import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
+import { pixelateImage, pixelateImageEdgeAware, loadImage } from '@yogthos/pixel-mosaic';
 
 // Load an image
 const img = await loadImage('path/to/image.jpg');
 
-// Pixelate it
+// Simple pixelation
 const pixelated = pixelateImage(img, 5, {
   returnCanvas: true,
   colorLimit: 32
 });
 
+// Edge-aware pixelation (advanced)
+const edgeAwarePixelated = await pixelateImageEdgeAware(img, 8, {
+  returnCanvas: true,
+  colorLimit: 32,
+  numIterations: 3,
+  searchSteps: 9,
+  onProgress: (info) => {
+    console.log('Using GPU:', info.usingGPU);
+  }
+});
+
 // Use the pixelated canvas
-document.body.appendChild(pixelated);
+document.body.appendChild(edgeAwarePixelated);
 ```
 
 ### Using from Source
@@ -109,6 +126,34 @@ Pixelates an image by scaling it down and then back up with nearest-neighbor int
 const pixelated = pixelateImage(myImage, 4, {
   returnCanvas: true,
   colorLimit: 16
+});
+```
+
+#### `pixelateImageEdgeAware(image, pixelizationFactor, options)`
+
+Pixelates an image using an edge-aware algorithm that aligns pixel grid boundaries with image edges for sharper results.
+
+**Parameters:**
+- `image` (HTMLImageElement|HTMLCanvasElement|ImageData) - Source image to pixelate
+- `pixelizationFactor` (number) - Approximate size of each pixel block (e.g., 8 = ~8x8 pixel blocks)
+- `options` (Object, optional) - Configuration options:
+  - `returnCanvas` (boolean, default: false) - If true, returns canvas element; otherwise returns ImageData
+  - `colorLimit` (number, optional) - Limit the number of colors for color quantization
+  - `searchSteps` (number, default: 9) - Number of search positions per corner (3x3 grid = 9)
+  - `numIterations` (number, default: 2) - Number of optimization iterations
+  - `onProgress` (function, optional) - Callback with progress info: `{ usingGPU: boolean }`
+
+**Returns:** `Promise<HTMLCanvasElement|ImageData>` - Pixelated image
+
+**Example:**
+```javascript
+const pixelated = await pixelateImageEdgeAware(myImage, 10, {
+  returnCanvas: true,
+  colorLimit: 16,
+  numIterations: 3,
+  onProgress: (info) => {
+    console.log('GPU acceleration:', info.usingGPU);
+  }
 });
 ```
 
@@ -194,6 +239,25 @@ const pixelated = pixelateImage(img, 6, {
 });
 ```
 
+### Edge-Aware Pixelation
+
+```javascript
+import { pixelateImageEdgeAware, loadImage } from '@yogthos/pixel-mosaic';
+
+const img = await loadImage('photo.jpg');
+const pixelated = await pixelateImageEdgeAware(img, 10, {
+  returnCanvas: true,
+  colorLimit: 32,
+  numIterations: 3,  // More iterations = better edge alignment
+  onProgress: (info) => {
+    if (info.usingGPU) {
+      console.log('Using GPU acceleration');
+    }
+  }
+});
+document.body.appendChild(pixelated);
+```
+
 ### Combining Pixelation and Projection
 
 ```javascript
@@ -217,7 +281,13 @@ You can also import from specific sub-modules:
 
 ```javascript
 // Import only pixelation functions
-import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic/pixelate';
+import { pixelateImage, pixelateImageEdgeAware, loadImage } from '@yogthos/pixel-mosaic/pixelate';
+
+// Import edge detection functions
+import { calculateEdgeMap, calculateEdgeMapWebGL } from '@yogthos/pixel-mosaic/edgeDetection';
+
+// Import grid optimization functions
+import { createInitialGrid, optimizeGridCorners, renderGrid } from '@yogthos/pixel-mosaic/gridOptimization';
 
 // Import only projection functions
 import { applyProjection, rotationMatrix } from '@yogthos/pixel-mosaic/projection';
@@ -225,15 +295,32 @@ import { applyProjection, rotationMatrix } from '@yogthos/pixel-mosaic/projectio
 
 ## Technical Details
 
-### Pixelation Algorithm
+### Simple Pixelation Algorithm
 
-The pixelation process works by:
+The simple pixelation process works by:
 
 1. **Downscaling**: The source image is drawn to a smaller canvas (original size / pixelSize)
-2. **Color Quantization** (optional): Colors are reduced using a median cut algorithm
+2. **Color Quantization** (optional): Colors are reduced using an improved diversity-maximizing algorithm
 3. **Upscaling**: The scaled-down image is drawn back to the original size with nearest-neighbor interpolation (image smoothing disabled)
 
 This creates the characteristic blocky pixel art effect.
+
+### Edge-Aware Pixelation Algorithm
+
+The edge-aware pixelation algorithm provides superior results by aligning pixel boundaries with image edges:
+
+1. **Edge Detection**: Uses Sobel operators to detect edges in the image (GPU-accelerated via WebGL when available)
+2. **Grid Initialization**: Creates a regular grid of quadrilateral cells over the image
+3. **Grid Optimization**: Iteratively moves grid corners to align cell edges with detected image edges:
+   - For each corner, searches nearby positions
+   - Evaluates edge alignment for all connected cell edges
+   - Moves corner to position with best edge alignment
+   - Uses adaptive damping to prevent oscillation
+4. **Color Assignment**: Calculates average color for each optimized cell
+5. **Rendering**: Renders each pixel by determining which cell it belongs to (using spatial hashing for efficiency)
+6. **Color Quantization** (optional): Applies color limiting to the final result
+
+This creates pixel art that preserves sharp edges and important image features while maintaining the pixelated aesthetic.
 
 ### Projective Transformation
 
@@ -248,18 +335,20 @@ This allows for perspective transformations, rotations, scaling, and other affin
 
 ### Color Quantization
 
-When `colorLimit` is specified, the algorithm:
+When `colorLimit` is specified, the algorithm uses an improved diversity-maximizing approach:
 
-1. Builds a frequency map of all colors in the image
-2. Selects the N most common colors (where N = colorLimit)
-3. Maps each pixel to its nearest color in the reduced palette
+1. Samples colors from the image (for performance on large images)
+2. Selects the most common color as the first palette entry
+3. Iteratively adds colors that are most different from the existing palette (maximizing color diversity)
+4. Maps each pixel to its nearest color in the reduced palette
 
-This creates a more authentic pixel art look with limited color palettes.
+This ensures the color palette represents the full range of colors in the image, preventing monocolor artifacts and creating more authentic pixel art with limited color palettes.
 
 ## Browser Compatibility
 
 - Modern browsers with ES6 module support
 - Canvas API support required
+- WebGL support recommended for GPU acceleration (falls back to CPU if unavailable)
 - File API support for file uploads
 
 ## Development
@@ -283,7 +372,9 @@ npm run test:coverage
 
 The project uses [Vitest](https://vitest.dev/) for testing. All core functionality is covered by unit tests:
 
-- Pixelation functions (pixelateImage, loadImage)
+- Pixelation functions (pixelateImage, pixelateImageEdgeAware, loadImage)
+- Edge detection (calculateEdgeMap, calculateEdgeMapWebGL)
+- Grid optimization (createInitialGrid, optimizeGridCorners, renderGrid)
 - Projection transformations (applyProjection)
 - Helper functions (identityMatrix, rotationMatrix, scaleMatrix)
 
