@@ -1,5 +1,7 @@
 # Pixel Mosaic
 
+![CI](https://github.com/yogthos/pixel-mosaic/actions/workflows/main.yml/badge.svg)
+
 A canvas-based library for pixelating images and applying projective transformations. Create pixel art effects with color quantization and advanced image warping.
 
 This library implements canvas-based techniques for pixelating images.
