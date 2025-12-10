@@ -1,6 +1,8 @@
 # Demo files
 index.html
 img/
+dist/
+build-demo.js
 
 # Development files
 .git/

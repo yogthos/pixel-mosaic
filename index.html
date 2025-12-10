@@ -129,6 +129,32 @@
             color: #1565c0;
         }
 
+        .github-link {
+            margin-top: 30px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .github-link a {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1em;
+            transition: color 0.3s;
+        }
+
+        .github-link a:hover {
+            color: #5568d3;
+        }
+
+        .github-link a::before {
+            content: '🔗';
+            font-size: 1.2em;
+        }
+
         @media (max-width: 768px) {
             .canvas-container {
                 grid-template-columns: 1fr;
@@ -228,6 +254,12 @@
 
         <div class="info">
             <strong>How to use:</strong> Upload an image, adjust the pixel size (up to 128) and color limit sliders, then click "Pixelate Image" to see the result. Enable "Edge-Aware Pixelation" for adaptive grid optimization - you can control how many optimization iterations the algorithm performs and adjust edge sharpness (0-1, default: 0.8 for strong edges). Enable "Apply Rotation" to see a projective transformation example.
+        </div>
+
+        <div class="github-link">
+            <a href="https://github.com/yogthos/pixel-mosaic" target="_blank" rel="noopener noreferrer">
+                View on GitHub
+            </a>
         </div>
     </div>
 
