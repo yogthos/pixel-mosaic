@@ -4,6 +4,8 @@
  * Uses GPU acceleration for edge detection using Sobel operators.
  */
 
+import { applyNonMaximumSuppression, applyThresholding } from './edgeDetection.js';
+
 /**
  * Creates a WebGL context and compiles shaders
  */
@@ -25,7 +27,7 @@ function createWebGLContext(canvas) {
     }
   `;
 
-  // Fragment shader - Sobel edge detection
+  // Fragment shader - Sobel edge detection with direction
   const fragmentShaderSource = `
     precision mediump float;
     uniform sampler2D u_image;
@@ -54,8 +56,16 @@ function createWebGLContext(canvas) {
       // Calculate gradient magnitude
       float magnitude = sqrt(sobelX * sobelX + sobelY * sobelY);
 
-      // Output magnitude (will be normalized later)
-      gl_FragColor = vec4(magnitude, magnitude, magnitude, 1.0);
+      // Calculate edge direction (perpendicular to gradient)
+      // atan2 returns [-π, π], we add π/2 and normalize to [0, 2π)
+      float direction = atan(sobelY, sobelX) + 3.14159265359 / 2.0;
+      if (direction < 0.0) direction += 2.0 * 3.14159265359;
+
+      // Normalize direction to [0, 1] for storage in texture
+      float directionNormalized = direction / (2.0 * 3.14159265359);
+
+      // Output: R = magnitude, G = direction (normalized), B = unused, A = 1.0
+      gl_FragColor = vec4(magnitude, directionNormalized, 0.0, 1.0);
     }
   `;
 
@@ -149,9 +159,32 @@ function createGrayscaleTexture(gl, imageData) {
  * Calculates edge map using WebGL (GPU-accelerated)
  *
  * @param {ImageData} imageData - Source image data
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.applyNMS - Apply non-maximum suppression (default: true)
+ * @param {number} options.threshold - Threshold value for edge sharpening (0-1, default: 0.4)
+ * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Maps to threshold: 0 = soft (0.0), 1 = very sharp (0.9)
+ * @param {number} options.highThreshold - High threshold for hysteresis (optional)
+ * @param {number} options.lowThreshold - Low threshold for hysteresis (optional)
  * @returns {Float32Array} Edge strength map (normalized 0-1)
  */
-export function calculateEdgeMapWebGL(imageData) {
+export function calculateEdgeMapWebGL(imageData, options = {}) {
+  let {
+    applyNMS = true,
+    threshold = null,
+    edgeSharpness = 0.8,
+    highThreshold = null,
+    lowThreshold = null
+  } = options;
+
+  // Map edgeSharpness (0-1) to threshold for edge detection
+  // edgeSharpness 0.0 -> threshold 0.1 (keep top 90% - very soft, many edges)
+  // edgeSharpness 0.5 -> threshold 0.35 (keep top 65% - moderate)
+  // edgeSharpness 1.0 -> threshold 0.6 (keep top 40% - sharp, focused edges)
+  // Wider range allows more visible difference between soft and sharp settings
+  if (threshold === null) {
+    threshold = 0.1 + edgeSharpness * 0.5;
+  }
+
   const { width, height } = imageData;
 
   // Create offscreen canvas for WebGL
@@ -209,24 +242,49 @@ export function calculateEdgeMapWebGL(imageData) {
   const pixels = new Uint8Array(width * height * 4);
   gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 
-  // Convert to Float32Array and normalize
-  const edgeMap = new Float32Array(width * height);
+  // Extract magnitude and direction from GPU output
+  const magnitudeMap = new Float32Array(width * height);
+  const directionMap = new Float32Array(width * height);
   let maxEdge = 0;
 
   for (let i = 0; i < width * height; i++) {
-    const magnitude = pixels[i * 4]; // Red channel contains magnitude
-    edgeMap[i] = magnitude;
+    // Red channel contains magnitude (0-255)
+    const magnitude = pixels[i * 4];
+    magnitudeMap[i] = magnitude;
     if (magnitude > maxEdge) {
       maxEdge = magnitude;
     }
+
+    // Green channel contains direction normalized to [0, 1]
+    // Convert back to radians [0, 2π]
+    const directionNormalized = pixels[i * 4 + 1] / 255.0;
+    directionMap[i] = directionNormalized * 2 * Math.PI;
   }
 
-  // Normalize to 0-1
+  // Normalize magnitude map to 0-1 range
   if (maxEdge > 0) {
-    for (let i = 0; i < edgeMap.length; i++) {
-      edgeMap[i] /= maxEdge;
+    for (let i = 0; i < magnitudeMap.length; i++) {
+      magnitudeMap[i] /= maxEdge;
     }
   }
+
+  let edgeMap = magnitudeMap;
+
+  // Apply non-maximum suppression if requested
+  if (applyNMS) {
+    edgeMap = applyNonMaximumSuppression(magnitudeMap, directionMap, width, height);
+
+    // Don't re-normalize after NMS - this preserves the original magnitude relationships
+    // Re-normalization was making all values too high, reducing thresholding effectiveness
+    // The original normalization before NMS is sufficient
+  }
+
+  // Apply thresholding
+  edgeMap = applyThresholding(edgeMap, width, height, {
+    threshold,
+    highThreshold,
+    lowThreshold
+  });
 
   // Cleanup
   gl.deleteTexture(texture);
@@ -235,4 +293,3 @@ export function calculateEdgeMapWebGL(imageData) {
 
   return edgeMap;
 }
-

@@ -285,6 +285,7 @@ function adjustContrast(imageData, contrast) {
  * @param {number} options.searchSteps - Number of search steps per corner (default: 9)
  * @param {number} options.numIterations - Number of optimization iterations (default: 2)
  * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
+ * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Higher values create sharper, cleaner edges
  * @returns {HTMLCanvasElement|ImageData} Pixelated image
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
@@ -294,7 +295,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     numIterations = 2,
     onProgress = null,
     colorLimit = null,
-    contrast = 1.0
+    contrast = 1.0,
+    edgeSharpness = 0.8
   } = options;
 
   // Get image dimensions
@@ -328,11 +330,12 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   }
 
   // Calculate edge map - try WebGL first, fallback to CPU
-  let edgeMap = calculateEdgeMapWebGL(imageData);
+  const edgeDetectionOptions = { edgeSharpness };
+  let edgeMap = calculateEdgeMapWebGL(imageData, edgeDetectionOptions);
   let usingGPU = false;
   if (!edgeMap) {
     // WebGL not available, use CPU implementation
-    edgeMap = calculateEdgeMap(imageData);
+    edgeMap = calculateEdgeMap(imageData, edgeDetectionOptions);
   } else {
     usingGPU = true;
   }
@@ -341,11 +344,18 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
 
   // Optimize grid corners to align with edges
-  // The stepSize should be a fraction of the grid cell size for fine-grained movement
+  // Scale search parameters based on edgeSharpness for crisper results at higher settings
+  // Higher sharpness = larger search radius and more aggressive snapping
+  const sharpnessScale = 0.5 + edgeSharpness * 1.5; // Range: 0.5 to 2.0
+  const effectiveStepSize = Math.max(1, pixelizationFactor * 0.3 * sharpnessScale);
+  const effectiveSearchSteps = Math.max(searchSteps, Math.floor(9 + edgeSharpness * 16)); // 9 to 25
+  const effectiveIterations = Math.max(numIterations, Math.floor(2 + edgeSharpness * 3)); // 2 to 5
+
   optimizeGridCorners(grid, edgeMap, sourceWidth, sourceHeight, {
-    searchSteps,
-    numIterations,
-    stepSize: Math.max(1, pixelizationFactor * 0.25) // Smaller steps for better precision
+    searchSteps: effectiveSearchSteps,
+    numIterations: effectiveIterations,
+    stepSize: effectiveStepSize,
+    edgeSharpness // Pass sharpness to control damping
   });
 
   // Report GPU usage if callback provided
@@ -353,8 +363,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     onProgress({ usingGPU });
   }
 
-  // Render optimized grid
-  let outputImageData = renderGrid(grid, imageData);
+  // Render optimized grid with edge-aware color sampling
+  // Pass edgeSharpness to control color sampling method
+  let outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness);
 
   // Apply contrast adjustment if requested
   if (contrast !== 1.0) {
@@ -407,4 +418,3 @@ export function loadImage(source) {
     }
   });
 }
-
