@@ -181,6 +181,12 @@
                 <input type="number" id="optimizationIterationsNumber" min="1" max="10" value="2">
             </div>
 
+            <div class="control-group" id="edgeSharpnessGroup" style="display: none;">
+                <label for="edgeSharpness">Edge Sharpness: <span id="edgeSharpnessValue">0.8</span></label>
+                <input type="range" id="edgeSharpness" min="0" max="1" step="0.1" value="0.8">
+                <input type="number" id="edgeSharpnessNumber" min="0" max="1" step="0.1" value="0.8">
+            </div>
+
             <div class="control-group" id="contrastGroup">
                 <label for="contrast">Contrast: <span id="contrastValue">1.0</span></label>
                 <input type="range" id="contrast" min="0.5" max="2" step="0.1" value="1.0">
@@ -221,7 +227,7 @@
         </div>
 
         <div class="info">
-            <strong>How to use:</strong> Upload an image, adjust the pixel size (up to 128) and color limit sliders, then click "Pixelate Image" to see the result. Enable "Edge-Aware Pixelation" for adaptive grid optimization - you can control how many optimization iterations the algorithm performs. Enable "Apply Rotation" to see a projective transformation example.
+            <strong>How to use:</strong> Upload an image, adjust the pixel size (up to 128) and color limit sliders, then click "Pixelate Image" to see the result. Enable "Edge-Aware Pixelation" for adaptive grid optimization - you can control how many optimization iterations the algorithm performs and adjust edge sharpness (0-1, default: 0.8 for strong edges). Enable "Apply Rotation" to see a projective transformation example.
         </div>
     </div>
 
@@ -245,6 +251,10 @@
             optimizationIterationsSlider: document.getElementById('optimizationIterations'),
             optimizationIterationsNumber: document.getElementById('optimizationIterationsNumber'),
             optimizationIterationsValue: document.getElementById('optimizationIterationsValue'),
+            edgeSharpnessGroup: document.getElementById('edgeSharpnessGroup'),
+            edgeSharpnessSlider: document.getElementById('edgeSharpness'),
+            edgeSharpnessNumber: document.getElementById('edgeSharpnessNumber'),
+            edgeSharpnessValue: document.getElementById('edgeSharpnessValue'),
             contrastGroup: document.getElementById('contrastGroup'),
             contrastSlider: document.getElementById('contrast'),
             contrastNumber: document.getElementById('contrastNumber'),
@@ -287,6 +297,29 @@
         syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
         syncControl(elements.optimizationIterationsSlider, elements.optimizationIterationsNumber, elements.optimizationIterationsValue, 1, 10, 2);
+
+        // Edge sharpness uses float values, so we need a custom sync function
+        function syncFloatControl(slider, number, valueDisplay, min, max, defaultVal, step = 0.1) {
+            const syncFromSlider = () => {
+                const value = parseFloat(slider.value);
+                number.value = value.toFixed(1);
+                valueDisplay.textContent = value.toFixed(1);
+            };
+
+            const syncFromNumber = (e) => {
+                const value = Math.max(min, Math.min(max, parseFloat(e.target.value) || defaultVal));
+                slider.value = value;
+                number.value = value.toFixed(1);
+                valueDisplay.textContent = value.toFixed(1);
+            };
+
+            slider.addEventListener('input', syncFromSlider);
+            number.addEventListener('input', syncFromNumber);
+            syncFromSlider();
+        }
+
+        syncFloatControl(elements.edgeSharpnessSlider, elements.edgeSharpnessNumber, elements.edgeSharpnessValue, 0, 1, 0.8, 0.1);
+
         syncControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
         syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
 
@@ -294,6 +327,7 @@
         function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
             elements.optimizationIterationsGroup.style.display = isEnabled ? 'block' : 'none';
+            elements.edgeSharpnessGroup.style.display = isEnabled ? 'block' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
                 elements.gpuStatus.textContent = '';
@@ -367,6 +401,7 @@
                     // Use edge-aware pixelation
                     const numIterations = parseInt(elements.optimizationIterationsSlider.value);
                     const contrast = parseFloat(elements.contrastSlider.value);
+                    const edgeSharpness = parseFloat(elements.edgeSharpnessSlider.value);
                     elements.gpuStatus.textContent = 'Processing...';
 
                     pixelated = await pixelateImageEdgeAware(currentImage, pixelSize, {
@@ -375,6 +410,7 @@
                         numIterations: numIterations,
                         colorLimit: colorLimit,
                         contrast: contrast,
+                        edgeSharpness: edgeSharpness,
                         onProgress: (info) => {
                             if (info.usingGPU) {
                                 elements.gpuStatus.textContent = '✓ Using GPU acceleration';
@@ -463,4 +499,3 @@
     </script>
 </body>
 </html>
-

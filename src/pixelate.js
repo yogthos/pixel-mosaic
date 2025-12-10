@@ -285,6 +285,7 @@ function adjustContrast(imageData, contrast) {
  * @param {number} options.searchSteps - Number of search steps per corner (default: 9)
  * @param {number} options.numIterations - Number of optimization iterations (default: 2)
  * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
+ * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Higher values create sharper, cleaner edges
  * @returns {HTMLCanvasElement|ImageData} Pixelated image
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
@@ -294,7 +295,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     numIterations = 2,
     onProgress = null,
     colorLimit = null,
-    contrast = 1.0
+    contrast = 1.0,
+    edgeSharpness = 0.8
   } = options;
 
   // Get image dimensions
@@ -328,11 +330,12 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   }
 
   // Calculate edge map - try WebGL first, fallback to CPU
-  let edgeMap = calculateEdgeMapWebGL(imageData);
+  const edgeDetectionOptions = { edgeSharpness };
+  let edgeMap = calculateEdgeMapWebGL(imageData, edgeDetectionOptions);
   let usingGPU = false;
   if (!edgeMap) {
     // WebGL not available, use CPU implementation
-    edgeMap = calculateEdgeMap(imageData);
+    edgeMap = calculateEdgeMap(imageData, edgeDetectionOptions);
   } else {
     usingGPU = true;
   }
@@ -407,4 +410,3 @@ export function loadImage(source) {
     }
   });
 }
-
