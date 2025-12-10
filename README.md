@@ -12,6 +12,7 @@ This library implements canvas-based techniques for pixelating images, including
 - **Edge-Aware Pixelation**: Advanced algorithm that detects image edges and aligns pixel grid boundaries with them for sharper, more natural-looking pixel art
 - **WebGL Acceleration**: GPU-accelerated edge detection for faster processing (with CPU fallback)
 - **Color Quantization**: Reduce color palette using an improved diversity-maximizing algorithm
+- **Contrast Adjustment**: Adjust image contrast to enhance pixel art effects
 - **Projective Transformation**: Apply homography transformations for advanced image warping
 - **Zero Dependencies**: Uses only native Canvas and WebGL APIs - no external libraries required
 
@@ -54,6 +55,7 @@ npx http-server -p 8000
 3. Upload an image and adjust the controls:
    - **Pixel Size**: Size of pixel blocks (higher = larger pixels)
    - **Color Limit**: Maximum number of colors in the palette
+   - **Contrast**: Adjust image contrast (1.0 = no change, < 1.0 = reduce, > 1.0 = increase)
    - **Edge-Aware Pixelation**: Enable advanced edge-aligned pixelation
    - **Optimization Iterations**: Number of grid optimization steps (when edge-aware is enabled)
 
@@ -68,13 +70,15 @@ const img = await loadImage('path/to/image.jpg');
 // Simple pixelation
 const pixelated = pixelateImage(img, 5, {
   returnCanvas: true,
-  colorLimit: 32
+  colorLimit: 32,
+  contrast: 1.2  // Increase contrast by 20%
 });
 
 // Edge-aware pixelation (advanced)
 const edgeAwarePixelated = await pixelateImageEdgeAware(img, 8, {
   returnCanvas: true,
   colorLimit: 32,
+  contrast: 1.1,
   numIterations: 3,
   searchSteps: 9,
   onProgress: (info) => {
@@ -118,6 +122,7 @@ Pixelates an image by scaling it down and then back up with nearest-neighbor int
 - `options` (Object, optional) - Configuration options:
   - `returnCanvas` (boolean, default: false) - If true, returns canvas element; otherwise returns ImageData
   - `colorLimit` (number, optional) - Limit the number of colors for color quantization
+  - `contrast` (number, default: 1.0) - Contrast adjustment factor (1.0 = no change, < 1.0 = reduce contrast, > 1.0 = increase contrast)
 
 **Returns:** `HTMLCanvasElement|ImageData` - Pixelated image
 
@@ -125,7 +130,8 @@ Pixelates an image by scaling it down and then back up with nearest-neighbor int
 ```javascript
 const pixelated = pixelateImage(myImage, 4, {
   returnCanvas: true,
-  colorLimit: 16
+  colorLimit: 16,
+  contrast: 1.2  // Increase contrast
 });
 ```
 
@@ -139,6 +145,7 @@ Pixelates an image using an edge-aware algorithm that aligns pixel grid boundari
 - `options` (Object, optional) - Configuration options:
   - `returnCanvas` (boolean, default: false) - If true, returns canvas element; otherwise returns ImageData
   - `colorLimit` (number, optional) - Limit the number of colors for color quantization
+  - `contrast` (number, default: 1.0) - Contrast adjustment factor (1.0 = no change, < 1.0 = reduce contrast, > 1.0 = increase contrast)
   - `searchSteps` (number, default: 9) - Number of search positions per corner (3x3 grid = 9)
   - `numIterations` (number, default: 2) - Number of optimization iterations
   - `onProgress` (function, optional) - Callback with progress info: `{ usingGPU: boolean }`
@@ -150,6 +157,7 @@ Pixelates an image using an edge-aware algorithm that aligns pixel grid boundari
 const pixelated = await pixelateImageEdgeAware(myImage, 10, {
   returnCanvas: true,
   colorLimit: 16,
+  contrast: 1.1,
   numIterations: 3,
   onProgress: (info) => {
     console.log('GPU acceleration:', info.usingGPU);
@@ -227,7 +235,7 @@ const pixelated = pixelateImage(img, 8, { returnCanvas: true });
 document.body.appendChild(pixelated);
 ```
 
-### Pixelation with Color Limiting
+### Pixelation with Color Limiting and Contrast
 
 ```javascript
 import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
@@ -235,7 +243,8 @@ import { pixelateImage, loadImage } from '@yogthos/pixel-mosaic';
 const img = await loadImage('photo.jpg');
 const pixelated = pixelateImage(img, 6, {
   returnCanvas: true,
-  colorLimit: 16  // Reduce to 16 colors
+  colorLimit: 16,  // Reduce to 16 colors
+  contrast: 1.3     // Increase contrast by 30%
 });
 ```
 
@@ -248,6 +257,7 @@ const img = await loadImage('photo.jpg');
 const pixelated = await pixelateImageEdgeAware(img, 10, {
   returnCanvas: true,
   colorLimit: 32,
+  contrast: 1.2,    // Increase contrast
   numIterations: 3,  // More iterations = better edge alignment
   onProgress: (info) => {
     if (info.usingGPU) {

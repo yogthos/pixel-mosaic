@@ -1,6 +1,6 @@
 {
   "name": "@yogthos/pixel-mosaic",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Canvas-based pixelation and projective transformation library for creating pixel art effects",
   "type": "module",
   "main": "index.js",

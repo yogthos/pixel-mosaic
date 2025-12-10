@@ -16,12 +16,14 @@ import { createInitialGrid, optimizeGridCorners, renderGrid } from './gridOptimi
  * @param {Object} options - Optional configuration
  * @param {boolean} options.returnCanvas - If true, returns canvas element; otherwise returns ImageData
  * @param {number} options.colorLimit - Limit the number of colors (optional, for color quantization)
+ * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
  * @returns {HTMLCanvasElement|ImageData} Pixelated image
  */
 export function pixelateImage(image, pixelSize, options = {}) {
   const {
     returnCanvas = false,
-    colorLimit = null
+    colorLimit = null,
+    contrast = 1.0
   } = options;
 
   // Get image dimensions
@@ -84,6 +86,13 @@ export function pixelateImage(image, pixelSize, options = {}) {
 
   // Draw scaled (and optionally quantized) image back up to original size
   outputCtx.drawImage(tempCanvas, 0, 0, sourceWidth, sourceHeight);
+
+  // Apply contrast adjustment if requested
+  if (contrast !== 1.0) {
+    let finalImageData = outputCtx.getImageData(0, 0, sourceWidth, sourceHeight);
+    finalImageData = adjustContrast(finalImageData, contrast);
+    outputCtx.putImageData(finalImageData, 0, 0);
+  }
 
   if (returnCanvas) {
     return outputCanvas;
@@ -236,6 +245,31 @@ function quantizeColors(imageData, maxColors) {
 }
 
 /**
+ * Adjusts contrast of an image.
+ * Uses a simple linear contrast formula: output = (input - 128) * contrast + 128
+ *
+ * @param {ImageData} imageData - Image data to adjust
+ * @param {number} contrast - Contrast factor (0-2, where 1 is no change)
+ * @returns {ImageData} Adjusted image data
+ */
+function adjustContrast(imageData, contrast) {
+  const data = imageData.data;
+  const output = new ImageData(imageData.width, imageData.height);
+  const outputData = output.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    // Apply contrast adjustment to RGB channels
+    outputData[i] = Math.max(0, Math.min(255, Math.round((data[i] - 128) * contrast + 128)));
+    outputData[i + 1] = Math.max(0, Math.min(255, Math.round((data[i + 1] - 128) * contrast + 128)));
+    outputData[i + 2] = Math.max(0, Math.min(255, Math.round((data[i + 2] - 128) * contrast + 128)));
+    // Keep alpha unchanged
+    outputData[i + 3] = data[i + 3];
+  }
+
+  return output;
+}
+
+/**
  * Loads an image from a URL or file and returns a promise that resolves with the image element.
  *
  * @param {string|File} source - URL string or File object
@@ -250,6 +284,7 @@ function quantizeColors(imageData, maxColors) {
  * @param {boolean} options.returnCanvas - If true, returns canvas element; otherwise returns ImageData
  * @param {number} options.searchSteps - Number of search steps per corner (default: 9)
  * @param {number} options.numIterations - Number of optimization iterations (default: 2)
+ * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
  * @returns {HTMLCanvasElement|ImageData} Pixelated image
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
@@ -258,7 +293,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     searchSteps = 9,
     numIterations = 2,
     onProgress = null,
-    colorLimit = null
+    colorLimit = null,
+    contrast = 1.0
   } = options;
 
   // Get image dimensions
@@ -319,6 +355,11 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
 
   // Render optimized grid
   let outputImageData = renderGrid(grid, imageData);
+
+  // Apply contrast adjustment if requested
+  if (contrast !== 1.0) {
+    outputImageData = adjustContrast(outputImageData, contrast);
+  }
 
   // Apply color quantization if requested
   if (colorLimit && colorLimit > 0) {

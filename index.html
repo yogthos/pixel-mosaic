@@ -181,6 +181,12 @@
                 <input type="number" id="optimizationIterationsNumber" min="1" max="10" value="2">
             </div>
 
+            <div class="control-group" id="contrastGroup">
+                <label for="contrast">Contrast: <span id="contrastValue">1.0</span></label>
+                <input type="range" id="contrast" min="0.5" max="2" step="0.1" value="1.0">
+                <input type="number" id="contrastNumber" min="0.5" max="2" step="0.1" value="1.0">
+            </div>
+
             <div class="control-group">
                 <label>
                     <input type="checkbox" id="useProjection">
@@ -239,6 +245,10 @@
             optimizationIterationsSlider: document.getElementById('optimizationIterations'),
             optimizationIterationsNumber: document.getElementById('optimizationIterationsNumber'),
             optimizationIterationsValue: document.getElementById('optimizationIterationsValue'),
+            contrastGroup: document.getElementById('contrastGroup'),
+            contrastSlider: document.getElementById('contrast'),
+            contrastNumber: document.getElementById('contrastNumber'),
+            contrastValue: document.getElementById('contrastValue'),
             useProjection: document.getElementById('useProjection'),
             rotationAngleSlider: document.getElementById('rotationAngle'),
             rotationAngleNumber: document.getElementById('rotationAngleNumber'),
@@ -277,17 +287,24 @@
         syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
         syncControl(elements.optimizationIterationsSlider, elements.optimizationIterationsNumber, elements.optimizationIterationsValue, 1, 10, 2);
+        syncControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
         syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
 
-        // Show/hide optimization iterations control based on edge-aware mode
-        elements.useEdgeAware.addEventListener('change', () => {
+        // Function to update visibility of edge-aware dependent controls
+        function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
             elements.optimizationIterationsGroup.style.display = isEnabled ? 'block' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
                 elements.gpuStatus.textContent = '';
             }
-        });
+        }
+
+        // Initialize visibility on page load
+        updateEdgeAwareControls();
+
+        // Show/hide optimization iterations based on edge-aware mode
+        elements.useEdgeAware.addEventListener('change', updateEdgeAwareControls);
 
         // Handle image upload
         elements.imageInput.addEventListener('change', async (e) => {
@@ -338,6 +355,7 @@
                 if (useEdgeAware) {
                     // Use edge-aware pixelation
                     const numIterations = parseInt(elements.optimizationIterationsSlider.value);
+                    const contrast = parseFloat(elements.contrastSlider.value);
                     elements.gpuStatus.textContent = 'Processing...';
 
                     pixelated = await pixelateImageEdgeAware(currentImage, pixelSize, {
@@ -345,6 +363,7 @@
                         searchSteps: 9,
                         numIterations: numIterations,
                         colorLimit: colorLimit,
+                        contrast: contrast,
                         onProgress: (info) => {
                             if (info.usingGPU) {
                                 elements.gpuStatus.textContent = '✓ Using GPU acceleration';
@@ -368,9 +387,11 @@
                     }
                 } else {
                     // Use simple pixelation
+                    const contrast = parseFloat(elements.contrastSlider.value);
                     pixelated = pixelateImage(currentImage, pixelSize, {
                         returnCanvas: true,
-                        colorLimit: colorLimit
+                        colorLimit: colorLimit,
+                        contrast: contrast
                     });
                 }
 
