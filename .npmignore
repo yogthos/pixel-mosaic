@@ -1,0 +1,34 @@
+# Demo files
+index.html
+
+# Development files
+.git/
+.gitignore
+.cursor/
+*.plan.md
+
+# Test files (if any)
+test/
+tests/
+*.test.js
+*.spec.js
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+

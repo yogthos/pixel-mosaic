@@ -1,5 +1,5 @@
 /**
- * Pixel Art Generator - Projective Transformation Module
+ * Pixel Mosaic - Projective Transformation Module
  *
  * Implements projective transformation (homography) for image warping.
  */

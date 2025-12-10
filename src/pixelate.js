@@ -1,8 +1,7 @@
 /**
- * Pixel Art Generator - Main Pixelation Module
+ * Pixel Mosaic - Main Pixelation Module
  *
  * Provides functions to pixelate images using canvas-based techniques.
- * Based on the projection logic found in the original implementation.
  */
 
 /**
@@ -66,6 +65,8 @@ export function pixelateImage(image, pixelSize, options = {}) {
   let imageData = tempCtx.getImageData(0, 0, scaledWidth, scaledHeight);
   if (colorLimit && colorLimit > 0) {
     imageData = quantizeColors(imageData, colorLimit);
+    // Put quantized imageData back onto tempCanvas so it's used when upscaling
+    tempCtx.putImageData(imageData, 0, 0);
   }
 
   // Create output canvas for upscaling
@@ -77,8 +78,7 @@ export function pixelateImage(image, pixelSize, options = {}) {
   // Disable smoothing for crisp pixel edges
   outputCtx.imageSmoothingEnabled = false;
 
-  // Draw scaled image back up to original size
-  outputCtx.putImageData(imageData, 0, 0);
+  // Draw scaled (and optionally quantized) image back up to original size
   outputCtx.drawImage(tempCanvas, 0, 0, sourceWidth, sourceHeight);
 
   if (returnCanvas) {

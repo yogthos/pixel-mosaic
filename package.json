@@ -1,0 +1,55 @@
+{
+  "name": "pixel-mosaic",
+  "version": "1.0.0",
+  "description": "Canvas-based pixelation and projective transformation library for creating pixel art effects",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./pixelate": "./src/pixelate.js",
+    "./projection": "./src/projection.js"
+  },
+  "files": [
+    "index.js",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pixel",
+    "pixelate",
+    "pixelation",
+    "canvas",
+    "image-processing",
+    "projection",
+    "homography",
+    "transformation",
+    "pixel-art",
+    "quantization"
+  ],
+  "author": "yogthos",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yogthos/pixel-mosaic"
+  },
+  "bugs": {
+    "url": "https://github.com/yogthos/pixel-mosaic"
+  },
+  "homepage": "https://github.com/yogthos/pixel-mosaic",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --coverage",
+    "prepublishOnly": "npm run test"
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "canvas": "^3.2.0",
+    "jsdom": "^27.3.0",
+    "vitest": "^4.0.15"
+  }
+}

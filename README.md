@@ -1,6 +1,8 @@
-# Pixel Art Generator
+# Pixel Mosaic
 
-This project implementats a canvas-based techniques for pixelating images.
+A canvas-based library for pixelating images and applying projective transformations. Create pixel art effects with color quantization and advanced image warping.
+
+This library implements canvas-based techniques for pixelating images.
 
 ## Features
 
@@ -11,10 +13,19 @@ This project implementats a canvas-based techniques for pixelating images.
 
 ## Installation
 
-No installation required! Just clone or download this repository:
+### NPM
+
+```bash
+npm install pixel-mosaic
+```
+
+### From Source
+
+Clone or download this repository:
 
 ```bash
 git clone https://git.sr.ht/~yogthos/pixel-mosaic
+cd pixel-mosaic
 ```
 
 ## Quick Start
@@ -38,7 +49,25 @@ npx http-server -p 8000
 
 3. Upload an image and adjust the pixel size and color limit sliders
 
-### Using as a Module
+### Using as an NPM Package
+
+```javascript
+import { pixelateImage, loadImage } from 'pixel-mosaic';
+
+// Load an image
+const img = await loadImage('path/to/image.jpg');
+
+// Pixelate it
+const pixelated = pixelateImage(img, 5, {
+  returnCanvas: true,
+  colorLimit: 32
+});
+
+// Use the pixelated canvas
+document.body.appendChild(pixelated);
+```
+
+### Using from Source
 
 ```javascript
 import { pixelateImage, loadImage } from './src/pixelate.js';
@@ -144,7 +173,7 @@ const rotated = applyProjection(myImage, rotation);
 ### Basic Pixelation
 
 ```javascript
-import { pixelateImage, loadImage } from './src/pixelate.js';
+import { pixelateImage, loadImage } from 'pixel-mosaic';
 
 const img = await loadImage('photo.jpg');
 const pixelated = pixelateImage(img, 8, { returnCanvas: true });
@@ -154,6 +183,9 @@ document.body.appendChild(pixelated);
 ### Pixelation with Color Limiting
 
 ```javascript
+import { pixelateImage, loadImage } from 'pixel-mosaic';
+
+const img = await loadImage('photo.jpg');
 const pixelated = pixelateImage(img, 6, {
   returnCanvas: true,
   colorLimit: 16  // Reduce to 16 colors
@@ -163,8 +195,9 @@ const pixelated = pixelateImage(img, 6, {
 ### Combining Pixelation and Projection
 
 ```javascript
-import { pixelateImage } from './src/pixelate.js';
-import { applyProjection, rotationMatrix } from './src/projection.js';
+import { pixelateImage, loadImage, applyProjection, rotationMatrix } from 'pixel-mosaic';
+
+const img = await loadImage('photo.jpg');
 
 // First pixelate
 const pixelated = pixelateImage(img, 5, { returnCanvas: true });
@@ -174,6 +207,18 @@ const width = pixelated.width;
 const height = pixelated.height;
 const rotation = rotationMatrix(Math.PI / 6, width / 2, height / 2);
 const transformed = applyProjection(pixelated, rotation, { returnCanvas: true });
+```
+
+### Using Sub-modules
+
+You can also import from specific sub-modules:
+
+```javascript
+// Import only pixelation functions
+import { pixelateImage, loadImage } from 'pixel-mosaic/pixelate';
+
+// Import only projection functions
+import { applyProjection, rotationMatrix } from 'pixel-mosaic/projection';
 ```
 
 ## Technical Details
@@ -218,3 +263,26 @@ This creates a more authentic pixel art look with limited color palettes.
 ## Development
 
 The code is written in vanilla JavaScript with ES6 modules. No build step is required - just serve the files through a local web server.
+
+### Running Tests
+
+```bash
+# Run tests once
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+## Testing
+
+The project uses [Vitest](https://vitest.dev/) for testing. All core functionality is covered by unit tests:
+
+- Pixelation functions (pixelateImage, loadImage)
+- Projection transformations (applyProjection)
+- Helper functions (identityMatrix, rotationMatrix, scaleMatrix)
+
+Test files are located in the `test/` directory.
