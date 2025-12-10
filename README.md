@@ -16,6 +16,19 @@ This library implements canvas-based techniques for pixelating images, including
 - **Projective Transformation**: Apply homography transformations for advanced image warping
 - **Zero Dependencies**: Uses only native Canvas and WebGL APIs - no external libraries required
 
+## Demo
+
+![](img/blackcat.jpg)
+
+using naive approach to pixelate the image
+
+![](img/blackcat_px_naive.png)
+
+using edge detection approach
+
+![](img/blackcat_px.png)
+
+
 ## Installation
 
 ### NPM
