@@ -18,15 +18,15 @@ This library implements canvas-based techniques for pixelating images, including
 
 ## Demo
 
-![](img/blackcat.jpg)
+![](img/dino.jpg)
 
 using naive approach to pixelate the image
 
-![](img/blackcat_px_naive.png)
+![](img/dino_px_naive.png)
 
 using edge detection approach
 
-![](img/blackcat_px.png)
+![](img/dino_px.png)
 
 
 ## Installation
