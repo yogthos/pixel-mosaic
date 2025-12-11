@@ -55,7 +55,22 @@ npx http-server -p 8000
 ### API
 
 ```javascript
-import { pixelateImage, pixelateImageEdgeAware, loadImage } from '@yogthos/pixel-mosaic';
+import {
+  pixelateImage,
+  pixelateImageEdgeAware,
+  loadImage,
+  // Step functions for custom pipelines
+  convertToImageData,
+  calculateEdgeMapStep,
+  createGridStep,
+  optimizeGridStep,
+  renderEdgeAwarePixelsStep,
+  adjustContrastStep,
+  quantizeColorsStep,
+  // Pipeline utilities
+  pipe,
+  createPipeline
+} from '@yogthos/pixel-mosaic';
 
 // Load image
 const img = await loadImage('image.jpg');
@@ -73,6 +88,222 @@ const edgeAware = await pixelateImageEdgeAware(img, 10, {
   edgeSharpness: 0.8,  // 0 = soft, 1 = crisp
   numIterations: 3
 });
+
+// Custom pipeline using step functions
+const imageData = convertToImageData(img);
+const { edgeMap } = await calculateEdgeMapStep(imageData, { edgeSharpness: 0.8 });
+const grid = createGridStep(imageData, 10);
+optimizeGridStep({ grid, edgeMap, imageData }, { edgeSharpness: 0.8 });
+const result = renderEdgeAwarePixelsStep(imageData, edgeMap, 10, 0.8);
+```
+
+## Functional Pipeline API
+
+The library now supports a functional pipeline style where each transformation step is an independent function that can be used separately or composed into custom pipelines.
+
+### Pipeline Utilities
+
+```javascript
+import { pipe, createPipeline } from '@yogthos/pixel-mosaic';
+
+// pipe() applies functions sequentially
+const result = pipe(
+  initialValue,
+  step1,
+  step2,
+  step3
+);
+
+// createPipeline() creates a reusable pipeline
+const myPipeline = createPipeline(step1, step2, step3);
+const result = myPipeline(initialValue);
+```
+
+### Step Functions
+
+All transformation steps are available as independent functions:
+
+#### Image Conversion Steps
+
+- **`convertToImageData(image)`** - Converts HTMLImageElement, HTMLCanvasElement, or ImageData to ImageData
+- **`convertToCanvasStep(imageData, returnCanvas)`** - Converts ImageData to Canvas or returns ImageData
+
+#### Edge Detection Steps
+
+- **`calculateEdgeMapStep(imageData, options)`** - Calculates edge map (WebGL or CPU fallback)
+  - Returns: `Promise<{ edgeMap: Float32Array, usingGPU: boolean }>`
+  - Options: `{ edgeSharpness, onProgress }`
+
+#### Grid Steps
+
+- **`createGridStep(imageData, pixelizationFactor)`** - Creates initial uniform grid
+- **`optimizeGridStep(context, options)`** - Optimizes grid corners to align with edges
+  - Context: `{ grid, edgeMap, imageData }`
+  - Options: `{ searchSteps, numIterations, stepSize, edgeSharpness }`
+
+#### Rendering Steps
+
+- **`renderEdgeAwarePixelsStep(imageData, edgeMap, pixelSize, edgeSharpness)`** - Renders edge-aware pixels
+- **`downscaleImageStep(image, pixelSize)`** - Downscales image by pixel size
+  - Returns: `{ scaledImageData, originalSize, scaledCanvas }`
+- **`upscaleImageStep(context)`** - Upscales scaled image back to original size
+  - Context: Result from `downscaleImageStep`
+
+#### Post-Processing Steps
+
+- **`adjustContrastStep(imageData, contrast)`** - Applies contrast adjustment (1.0 = no change)
+- **`quantizeColorsStep(imageData, colorLimit)`** - Quantizes colors to reduce palette
+
+### Example: Custom Pipeline
+
+```javascript
+import {
+  convertToImageData,
+  calculateEdgeMapStep,
+  createGridStep,
+  optimizeGridStep,
+  renderEdgeAwarePixelsStep,
+  adjustContrastStep,
+  quantizeColorsStep,
+  convertToCanvasStep
+} from '@yogthos/pixel-mosaic';
+
+// Create a custom edge-aware pixelation pipeline
+async function customPixelate(image, pixelSize, options = {}) {
+  const { edgeSharpness = 0.8, contrast = 1.0, colorLimit = null } = options;
+
+  // Step 1: Convert to ImageData
+  const imageData = convertToImageData(image);
+
+  // Step 2: Calculate edge map
+  const { edgeMap } = await calculateEdgeMapStep(imageData, { edgeSharpness });
+
+  // Step 3: Create grid
+  const grid = createGridStep(imageData, pixelSize);
+
+  // Step 4: Optimize grid
+  optimizeGridStep(
+    { grid, edgeMap, imageData },
+    { edgeSharpness, numIterations: 3 }
+  );
+
+  // Step 5: Render pixels
+  let result = renderEdgeAwarePixelsStep(imageData, edgeMap, pixelSize, edgeSharpness);
+
+  // Step 6: Apply contrast
+  result = adjustContrastStep(result, contrast);
+
+  // Step 7: Quantize colors (if requested)
+  if (colorLimit) {
+    result = quantizeColorsStep(result, colorLimit);
+  }
+
+  // Step 8: Convert to canvas
+  return convertToCanvasStep(result, true);
+}
+```
+
+### Example: Simple Pixelation Pipeline
+
+```javascript
+import {
+  convertToImageData,
+  downscaleImageStep,
+  quantizeColorsStep,
+  upscaleImageStep,
+  adjustContrastStep
+} from '@yogthos/pixel-mosaic';
+
+function simplePixelate(image, pixelSize, options = {}) {
+  const { colorLimit = null, contrast = 1.0 } = options;
+
+  // Convert to ImageData
+  const imageData = convertToImageData(image);
+
+  // Downscale
+  const downscaleContext = downscaleImageStep(image, pixelSize);
+  let scaledData = downscaleContext.scaledImageData;
+
+  // Apply color quantization if requested
+  if (colorLimit) {
+    scaledData = quantizeColorsStep(scaledData, colorLimit);
+    downscaleContext.scaledCanvas.getContext('2d').putImageData(scaledData, 0, 0);
+  }
+
+  // Upscale
+  const canvas = upscaleImageStep(downscaleContext);
+
+  // Apply contrast
+  if (contrast !== 1.0) {
+    const ctx = canvas.getContext('2d');
+    const finalData = adjustContrastStep(
+      ctx.getImageData(0, 0, canvas.width, canvas.height),
+      contrast
+    );
+    ctx.putImageData(finalData, 0, 0);
+  }
+
+  return canvas;
+}
+```
+
+### Pipeline Flow Diagrams
+
+#### Edge-Aware Pixelation Pipeline
+
+```mermaid
+flowchart TD
+    A[Input Image] --> B[convertToImageData]
+    B --> C[calculateEdgeMapStep]
+    C --> D{Edge Map}
+    D -->|WebGL| E[GPU Edge Map]
+    D -->|CPU Fallback| F[CPU Edge Map]
+    E --> G[createGridStep]
+    F --> G
+    G --> H[optimizeGridStep]
+    H --> I[renderEdgeAwarePixelsStep]
+    I --> J[adjustContrastStep]
+    J --> K{Color Limit?}
+    K -->|Yes| L[quantizeColorsStep]
+    K -->|No| M[convertToCanvasStep]
+    L --> M
+    M --> N[Output Canvas/ImageData]
+```
+
+#### Simple Pixelation Pipeline
+
+```mermaid
+flowchart TD
+    A[Input Image] --> B[convertToImageData]
+    B --> C[downscaleImageStep]
+    C --> D{Color Limit?}
+    D -->|Yes| E[quantizeColorsStep]
+    D -->|No| F[upscaleImageStep]
+    E --> F
+    F --> G{Contrast != 1.0?}
+    G -->|Yes| H[adjustContrastStep]
+    G -->|No| I[Output Canvas/ImageData]
+    H --> I
+```
+
+#### Functional Pipeline Composition
+
+The step functions can be composed using the `pipe()` utility or chained manually:
+
+```mermaid
+flowchart LR
+    A[Initial Value] --> B[Step 1]
+    B --> C[Step 2]
+    C --> D[Step 3]
+    D --> E[Step N]
+    E --> F[Final Result]
+
+    subgraph Pipeline["pipe(value, step1, step2, step3, ...)"]
+        B
+        C
+        D
+        E
+    end
 ```
 
 ## API Reference
@@ -117,6 +348,27 @@ Loads an image from URL or File.
 - `source` - URL string or File object
 
 **Returns:** `Promise<HTMLImageElement>`
+
+### Step Functions
+
+All step functions are exported and can be used independently. See the [Functional Pipeline API](#functional-pipeline-api) section above for detailed documentation and examples.
+
+**Available step functions:**
+- `convertToImageData(image)`
+- `calculateEdgeMapStep(imageData, options)`
+- `createGridStep(imageData, pixelizationFactor)`
+- `optimizeGridStep(context, options)`
+- `renderEdgeAwarePixelsStep(imageData, edgeMap, pixelSize, edgeSharpness)`
+- `adjustContrastStep(imageData, contrast)`
+- `quantizeColorsStep(imageData, colorLimit)`
+- `convertToCanvasStep(imageData, returnCanvas)`
+- `downscaleImageStep(image, pixelSize)`
+- `upscaleImageStep(context)`
+
+### Pipeline Utilities
+
+- **`pipe(initialValue, ...functions)`** - Applies functions sequentially to a value
+- **`createPipeline(...functions)`** - Creates a reusable pipeline function
 
 ### `applyProjection(image, transformMatrix, options)`
 
