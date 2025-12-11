@@ -7,6 +7,13 @@
 import { calculateEdgeMap } from './edgeDetection.js';
 import { calculateEdgeMapWebGL } from './webglEdgeDetection.js';
 import { createInitialGrid, optimizeGridCorners, renderGrid } from './gridOptimization.js';
+import {
+  edgeMapToCanvas,
+  createGrayscaleCanvas,
+  drawGridOverlay,
+  imageDataToCanvas,
+  cloneGridCorners
+} from './visualization.js';
 
 /**
  * Pixelates an image by scaling it down and then back up with nearest-neighbor interpolation.
@@ -286,7 +293,8 @@ function adjustContrast(imageData, contrast) {
  * @param {number} options.numIterations - Number of optimization iterations (default: 2)
  * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
  * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Higher values create sharper, cleaner edges
- * @returns {HTMLCanvasElement|ImageData} Pixelated image
+ * @param {boolean} options.captureIntermediates - If true, returns object with intermediates for visualization
+ * @returns {HTMLCanvasElement|ImageData|Object} Pixelated image, or object with canvas and intermediates if captureIntermediates is true
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
   const {
@@ -296,8 +304,12 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     onProgress = null,
     colorLimit = null,
     contrast = 1.0,
-    edgeSharpness = 0.8
+    edgeSharpness = 0.8,
+    captureIntermediates = false
   } = options;
+
+  // Intermediates array to collect visualization steps
+  const intermediates = captureIntermediates ? [] : null;
 
   // Get image dimensions
   let sourceWidth, sourceHeight, imageData;
@@ -329,19 +341,98 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     sourceHeight = canvas.height;
   }
 
-  // Calculate edge map - try WebGL first, fallback to CPU
-  const edgeDetectionOptions = { edgeSharpness };
-  let edgeMap = calculateEdgeMapWebGL(imageData, edgeDetectionOptions);
-  let usingGPU = false;
+  // Capture original image
+  if (captureIntermediates) {
+    intermediates.push({
+      name: 'Original',
+      canvas: imageDataToCanvas(imageData)
+    });
+  }
+
+  // Calculate edge map - always try WebGL first for performance
+  let edgeMap = calculateEdgeMapWebGL(imageData, { edgeSharpness });
+  let usingGPU = edgeMap !== null;
+
   if (!edgeMap) {
     // WebGL not available, use CPU implementation
-    edgeMap = calculateEdgeMap(imageData, edgeDetectionOptions);
-  } else {
-    usingGPU = true;
+    edgeMap = calculateEdgeMap(imageData, { edgeSharpness });
+  }
+
+  // Generate visualization intermediates separately
+  if (captureIntermediates) {
+    // Add grayscale step
+    intermediates.push({
+      name: 'Grayscale',
+      canvas: createGrayscaleCanvas(imageData)
+    });
+
+    // For visualization, use downscaled image for speed
+    // Scale down to max 400px on longest side
+    const maxVizSize = 400;
+    const scale = Math.min(1, maxVizSize / Math.max(sourceWidth, sourceHeight));
+    const vizWidth = Math.round(sourceWidth * scale);
+    const vizHeight = Math.round(sourceHeight * scale);
+
+    let vizImageData = imageData;
+    if (scale < 1) {
+      // Downscale for visualization
+      const vizCanvas = document.createElement('canvas');
+      vizCanvas.width = vizWidth;
+      vizCanvas.height = vizHeight;
+      const vizCtx = vizCanvas.getContext('2d');
+      const srcCanvas = imageDataToCanvas(imageData);
+      vizCtx.drawImage(srcCanvas, 0, 0, vizWidth, vizHeight);
+      vizImageData = vizCtx.getImageData(0, 0, vizWidth, vizHeight);
+    }
+
+    // Generate edge detection steps on downscaled image (fast)
+    const vizResult = calculateEdgeMap(vizImageData, {
+      edgeSharpness,
+      captureIntermediates: true
+    });
+
+    // Upscale visualization results back to original size
+    function upscaleEdgeMap(edgeMapData, w, h, targetW, targetH) {
+      const canvas = edgeMapToCanvas(edgeMapData, w, h);
+      const upscaled = document.createElement('canvas');
+      upscaled.width = targetW;
+      upscaled.height = targetH;
+      const ctx = upscaled.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(canvas, 0, 0, targetW, targetH);
+      return upscaled;
+    }
+
+    // Add gradient magnitude step
+    intermediates.push({
+      name: 'Gradient Magnitude',
+      canvas: upscaleEdgeMap(vizResult.intermediates.magnitude, vizWidth, vizHeight, sourceWidth, sourceHeight)
+    });
+
+    // Add after NMS step
+    intermediates.push({
+      name: 'After NMS',
+      canvas: upscaleEdgeMap(vizResult.intermediates.afterNMS, vizWidth, vizHeight, sourceWidth, sourceHeight)
+    });
+
+    // Add edge map step (use actual full-res edge map)
+    intermediates.push({
+      name: 'Edge Map',
+      canvas: edgeMapToCanvas(edgeMap, sourceWidth, sourceHeight)
+    });
   }
 
   // Create initial grid
   const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
+
+  // Capture initial grid overlay
+  if (captureIntermediates) {
+    const originalCanvas = imageDataToCanvas(imageData);
+    intermediates.push({
+      name: 'Initial Grid',
+      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(255, 0, 0, 0.8)', 1)
+    });
+  }
 
   // Optimize grid corners to align with edges
   // Scale search parameters based on edgeSharpness for crisper results at higher settings
@@ -357,6 +448,15 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     stepSize: effectiveStepSize,
     edgeSharpness // Pass sharpness to control damping
   });
+
+  // Capture optimized grid overlay
+  if (captureIntermediates) {
+    const originalCanvas = imageDataToCanvas(imageData);
+    intermediates.push({
+      name: 'Optimized Grid',
+      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(0, 255, 0, 0.8)', 1)
+    });
+  }
 
   // Report GPU usage if callback provided
   if (onProgress) {
@@ -377,16 +477,31 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     outputImageData = quantizeColors(outputImageData, colorLimit);
   }
 
+  // Create output canvas
+  const outputCanvas = document.createElement('canvas');
+  outputCanvas.width = sourceWidth;
+  outputCanvas.height = sourceHeight;
+  const ctx = outputCanvas.getContext('2d');
+  ctx.putImageData(outputImageData, 0, 0);
+
+  // Attach metadata to canvas
+  outputCanvas._usingGPU = usingGPU;
+
+  // Capture final result
+  if (captureIntermediates) {
+    intermediates.push({
+      name: 'Final Result',
+      canvas: outputCanvas
+    });
+
+    return {
+      canvas: outputCanvas,
+      intermediates,
+      usingGPU
+    };
+  }
+
   if (returnCanvas) {
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = sourceWidth;
-    outputCanvas.height = sourceHeight;
-    const ctx = outputCanvas.getContext('2d');
-    ctx.putImageData(outputImageData, 0, 0);
-
-    // Attach metadata to canvas
-    outputCanvas._usingGPU = usingGPU;
-
     return outputCanvas;
   } else {
     return outputImageData;

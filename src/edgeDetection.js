@@ -217,7 +217,8 @@ export function applyThresholding(edgeMap, width, height, options = {}) {
  * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Maps to threshold: 0 = soft (0.0), 1 = very sharp (0.9)
  * @param {number} options.highThreshold - High threshold for hysteresis (optional)
  * @param {number} options.lowThreshold - Low threshold for hysteresis (optional)
- * @returns {Float32Array} Edge strength map (1D array, same size as image pixels)
+ * @param {boolean} options.captureIntermediates - If true, return object with intermediate steps (default: false)
+ * @returns {Float32Array|Object} Edge strength map, or object with edgeMap and intermediates if captureIntermediates is true
  */
 export function calculateEdgeMap(imageData, options = {}) {
   let {
@@ -225,7 +226,8 @@ export function calculateEdgeMap(imageData, options = {}) {
     threshold = null,
     edgeSharpness = 0.8,
     highThreshold = null,
-    lowThreshold = null
+    lowThreshold = null,
+    captureIntermediates = false
   } = options;
 
   // Map edgeSharpness (0-1) to threshold for edge detection
@@ -240,6 +242,12 @@ export function calculateEdgeMap(imageData, options = {}) {
   const { data, width, height } = imageData;
   const magnitudeMap = new Float32Array(width * height);
   const directionMap = new Float32Array(width * height);
+
+  // Capture grayscale if needed
+  let grayscaleMap = null;
+  if (captureIntermediates) {
+    grayscaleMap = new Float32Array(width * height);
+  }
 
   // Sobel kernels for gradient calculation
   const sobelX = [
@@ -268,6 +276,11 @@ export function calculateEdgeMap(imageData, options = {}) {
           const kernelIdx = (ky + 1) * 3 + (kx + 1);
           gx += gray * sobelX[kernelIdx];
           gy += gray * sobelY[kernelIdx];
+
+          // Capture center pixel grayscale
+          if (captureIntermediates && ky === 0 && kx === 0) {
+            grayscaleMap[y * width + x] = gray / 255;
+          }
         }
       }
 
@@ -278,6 +291,19 @@ export function calculateEdgeMap(imageData, options = {}) {
       // Calculate edge direction (perpendicular to gradient)
       const direction = Math.atan2(gy, gx) + Math.PI / 2;
       directionMap[y * width + x] = direction;
+    }
+  }
+
+  // Fill in border pixels for grayscale
+  if (captureIntermediates) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (y === 0 || y === height - 1 || x === 0 || x === width - 1) {
+          const idx = (y * width + x) * 4;
+          const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+          grayscaleMap[y * width + x] = gray / 255;
+        }
+      }
     }
   }
 
@@ -295,15 +321,23 @@ export function calculateEdgeMap(imageData, options = {}) {
     }
   }
 
+  // Capture normalized magnitude before NMS
+  let normalizedMagnitude = null;
+  if (captureIntermediates) {
+    normalizedMagnitude = new Float32Array(magnitudeMap);
+  }
+
   let edgeMap = magnitudeMap;
+  let afterNMS = null;
 
   // Apply non-maximum suppression if requested
   if (applyNMS) {
     edgeMap = applyNonMaximumSuppression(magnitudeMap, directionMap, width, height);
 
-    // Don't re-normalize after NMS - this preserves the original magnitude relationships
-    // Re-normalization was making all values too high, reducing thresholding effectiveness
-    // The original normalization before NMS is sufficient
+    // Capture after NMS
+    if (captureIntermediates) {
+      afterNMS = new Float32Array(edgeMap);
+    }
   }
 
   // Apply thresholding
@@ -312,6 +346,21 @@ export function calculateEdgeMap(imageData, options = {}) {
     highThreshold,
     lowThreshold
   });
+
+  // Return with intermediates if requested
+  if (captureIntermediates) {
+    return {
+      edgeMap,
+      intermediates: {
+        grayscale: grayscaleMap,
+        magnitude: normalizedMagnitude,
+        afterNMS: afterNMS || normalizedMagnitude,
+        afterThreshold: edgeMap
+      },
+      width,
+      height
+    };
+  }
 
   return edgeMap;
 }
