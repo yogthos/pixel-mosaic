@@ -109,6 +109,130 @@ export function pixelateImage(image, pixelSize, options = {}) {
 }
 
 /**
+ * Renders edge-aware pixelation with rectangular pixels.
+ * Uses median color sampling near edges for crispness, average elsewhere.
+ *
+ * @param {ImageData} imageData - Source image data
+ * @param {Float32Array} edgeMap - Edge strength map
+ * @param {number} pixelSize - Size of each pixel block
+ * @param {number} edgeSharpness - Edge sharpness (0-1), controls blend between average and median
+ * @returns {ImageData} Pixelated image data
+ */
+function renderEdgeAwarePixels(imageData, edgeMap, pixelSize, edgeSharpness) {
+  const { width, height, data } = imageData;
+  const output = new ImageData(width, height);
+  const outputData = output.data;
+
+  // Process each pixel block
+  for (let blockY = 0; blockY < height; blockY += pixelSize) {
+    for (let blockX = 0; blockX < width; blockX += pixelSize) {
+      // Determine block boundaries
+      const blockEndX = Math.min(blockX + pixelSize, width);
+      const blockEndY = Math.min(blockY + pixelSize, height);
+
+      // Collect colors and check for edges in this block
+      const colors = [];
+      let hasEdge = false;
+      let edgeStrength = 0;
+
+      for (let y = blockY; y < blockEndY; y++) {
+        for (let x = blockX; x < blockEndX; x++) {
+          const idx = (y * width + x) * 4;
+          colors.push({
+            r: data[idx],
+            g: data[idx + 1],
+            b: data[idx + 2],
+            a: data[idx + 3]
+          });
+
+          // Check edge map
+          const edgeIdx = y * width + x;
+          if (edgeMap[edgeIdx] > 0) {
+            hasEdge = true;
+            edgeStrength = Math.max(edgeStrength, edgeMap[edgeIdx]);
+          }
+        }
+      }
+
+      // Calculate block color based on edge presence and sharpness
+      let blockColor;
+      if (hasEdge && edgeSharpness > 0) {
+        // Use median color for blocks with edges (crisper)
+        const medianColor = getMedianColor(colors);
+
+        if (edgeSharpness >= 1) {
+          blockColor = medianColor;
+        } else {
+          // Blend between average and median based on sharpness
+          const avgColor = getAverageColor(colors);
+          const blend = edgeSharpness * edgeStrength;
+          blockColor = {
+            r: Math.round(avgColor.r * (1 - blend) + medianColor.r * blend),
+            g: Math.round(avgColor.g * (1 - blend) + medianColor.g * blend),
+            b: Math.round(avgColor.b * (1 - blend) + medianColor.b * blend),
+            a: Math.round(avgColor.a * (1 - blend) + medianColor.a * blend)
+          };
+        }
+      } else {
+        // Use average color for blocks without edges (smoother)
+        blockColor = getAverageColor(colors);
+      }
+
+      // Fill the block with the calculated color
+      for (let y = blockY; y < blockEndY; y++) {
+        for (let x = blockX; x < blockEndX; x++) {
+          const idx = (y * width + x) * 4;
+          outputData[idx] = blockColor.r;
+          outputData[idx + 1] = blockColor.g;
+          outputData[idx + 2] = blockColor.b;
+          outputData[idx + 3] = blockColor.a;
+        }
+      }
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Calculates average color from an array of colors.
+ */
+function getAverageColor(colors) {
+  let r = 0, g = 0, b = 0, a = 0;
+  for (const c of colors) {
+    r += c.r;
+    g += c.g;
+    b += c.b;
+    a += c.a;
+  }
+  const n = colors.length;
+  return {
+    r: Math.round(r / n),
+    g: Math.round(g / n),
+    b: Math.round(b / n),
+    a: Math.round(a / n)
+  };
+}
+
+/**
+ * Calculates median color from an array of colors.
+ * Uses luminance-sorted median for better edge preservation.
+ */
+function getMedianColor(colors) {
+  if (colors.length === 0) return { r: 0, g: 0, b: 0, a: 255 };
+  if (colors.length === 1) return colors[0];
+
+  // Sort by luminance
+  const sorted = [...colors].sort((a, b) => {
+    const lumA = 0.299 * a.r + 0.587 * a.g + 0.114 * a.b;
+    const lumB = 0.299 * b.r + 0.587 * b.g + 0.114 * b.b;
+    return lumA - lumB;
+  });
+
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/**
  * Quantizes colors in an image to reduce the color palette.
  * Uses an improved algorithm that ensures color diversity.
  *
@@ -659,9 +783,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     onProgress({ usingGPU });
   }
 
-  // Render optimized grid with edge-aware color sampling
-  // Pass edgeSharpness to control color sampling method
-  let outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness);
+  // Render as proper rectangular pixelation with edge-aware color sampling
+  // (Not polygon mosaic - the grid visualization is just for showing the algorithm)
+  let outputImageData = renderEdgeAwarePixels(imageData, edgeMap, pixelizationFactor, edgeSharpness);
 
   // Apply contrast adjustment if requested
   if (contrast !== 1.0) {
