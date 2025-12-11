@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             background: white;
             border-radius: 12px;
@@ -36,7 +36,7 @@
 
         .controls {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
             padding: 20px;
@@ -96,14 +96,15 @@
         }
 
         .canvas-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             margin-top: 30px;
         }
 
         .canvas-wrapper {
             text-align: center;
+            width: 100%;
         }
 
         .canvas-wrapper h2 {
@@ -129,13 +130,16 @@
             color: #1565c0;
         }
 
-        /* Step navigation in canvas wrapper */
+        /* Step navigation */
         .step-navigation {
             display: none;
             justify-content: center;
             align-items: center;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 15px;
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
         }
 
         .step-navigation.active {
@@ -143,16 +147,22 @@
         }
 
         .step-navigation button {
-            padding: 8px 16px;
-            font-size: 0.9em;
-            min-width: 80px;
+            padding: 10px 20px;
+            font-size: 1em;
+            min-width: 100px;
         }
 
         .step-label {
             font-weight: 600;
-            color: #555;
-            font-size: 0.95em;
-            margin: 0 10px;
+            color: #333;
+            font-size: 1.1em;
+            min-width: 200px;
+            text-align: center;
+        }
+
+        .step-counter {
+            color: #666;
+            font-size: 0.9em;
         }
 
         .github-link {
@@ -179,12 +189,6 @@
         .github-link a::before {
             content: '🔗';
             font-size: 1.2em;
-        }
-
-        @media (max-width: 768px) {
-            .canvas-container {
-                grid-template-columns: 1fr;
-            }
         }
     </style>
 </head>
@@ -227,12 +231,6 @@
                 </div>
             </div>
 
-            <div class="control-group" id="optimizationIterationsGroup" style="display: none;">
-                <label for="optimizationIterations">Optimization Iterations: <span id="optimizationIterationsValue">2</span></label>
-                <input type="range" id="optimizationIterations" min="1" max="10" value="2">
-                <input type="number" id="optimizationIterationsNumber" min="1" max="10" value="2">
-            </div>
-
             <div class="control-group" id="edgeSharpnessGroup" style="display: none;">
                 <label for="edgeSharpness">Edge Sharpness: <span id="edgeSharpnessValue">0.8</span></label>
                 <input type="range" id="edgeSharpness" min="0" max="1" step="0.1" value="0.8">
@@ -253,45 +251,27 @@
             </div>
 
             <div class="control-group">
-                <label>
-                    <input type="checkbox" id="useProjection">
-                    Apply Rotation (Projection)
-                </label>
-            </div>
-
-            <div class="control-group">
-                <label for="rotationAngle">Rotation Angle: <span id="rotationAngleValue">0</span>°</label>
-                <input type="range" id="rotationAngle" min="0" max="360" value="0">
-                <input type="number" id="rotationAngleNumber" min="0" max="360" value="0">
-            </div>
-
-            <div class="control-group">
                 <button id="pixelateBtn" disabled>Pixelate Image</button>
             </div>
         </div>
 
         <div class="canvas-container">
             <div class="canvas-wrapper">
-                <h2>Original Image</h2>
-                <canvas id="originalCanvas"></canvas>
-            </div>
-            <div class="canvas-wrapper">
-                <h2>Pixelated Image</h2>
-                <canvas id="pixelatedCanvas"></canvas>
+                <h2 id="canvasTitle">Upload an image to begin</h2>
+                <canvas id="mainCanvas"></canvas>
                 <div class="step-navigation" id="stepNavigation">
                     <button id="stepPrev">← Previous</button>
-                    <span class="step-label" id="stepLabel">Original</span>
+                    <div>
+                        <div class="step-label" id="stepLabel">Original</div>
+                        <div class="step-counter" id="stepCounter"></div>
+                    </div>
                     <button id="stepNext">Next →</button>
                 </div>
-            </div>
-            <div class="canvas-wrapper">
-                <h2>With Projection</h2>
-                <canvas id="projectedCanvas"></canvas>
             </div>
         </div>
 
         <div class="info">
-            <strong>How to use:</strong> Upload an image, adjust the pixel size (up to 128) and color limit sliders, then click "Pixelate Image" to see the result. Enable "Edge-Aware Pixelation" for adaptive grid optimization - you can control how many optimization iterations the algorithm performs and adjust edge sharpness (0-1, default: 0.8 for strong edges). Enable "Apply Rotation" to see a projective transformation example.
+            <strong>How to use:</strong> Upload an image, adjust the pixel size and color limit, then click "Pixelate Image". Enable "Edge-Aware Pixelation" for adaptive grid optimization with adjustable edge sharpness. Check "Show Algorithm Steps" to visualize the edge detection process.
         </div>
 
         <div class="github-link">
@@ -303,7 +283,6 @@
 
     <script type="module">
         import { pixelateImage, pixelateImageEdgeAware, loadImage } from './src/pixelate.js';
-        import { applyProjection, rotationMatrix } from './src/projection.js';
 
         const elements = {
             imageInput: document.getElementById('imageInput'),
@@ -317,10 +296,6 @@
             useEdgeAware: document.getElementById('useEdgeAware'),
             gpuIndicator: document.getElementById('gpuIndicator'),
             gpuStatus: document.getElementById('gpuStatus'),
-            optimizationIterationsGroup: document.getElementById('optimizationIterationsGroup'),
-            optimizationIterationsSlider: document.getElementById('optimizationIterations'),
-            optimizationIterationsNumber: document.getElementById('optimizationIterationsNumber'),
-            optimizationIterationsValue: document.getElementById('optimizationIterationsValue'),
             edgeSharpnessGroup: document.getElementById('edgeSharpnessGroup'),
             edgeSharpnessSlider: document.getElementById('edgeSharpness'),
             edgeSharpnessNumber: document.getElementById('edgeSharpnessNumber'),
@@ -329,20 +304,16 @@
             showAlgorithmSteps: document.getElementById('showAlgorithmSteps'),
             stepNavigation: document.getElementById('stepNavigation'),
             stepLabel: document.getElementById('stepLabel'),
+            stepCounter: document.getElementById('stepCounter'),
             stepPrev: document.getElementById('stepPrev'),
             stepNext: document.getElementById('stepNext'),
             contrastGroup: document.getElementById('contrastGroup'),
             contrastSlider: document.getElementById('contrast'),
             contrastNumber: document.getElementById('contrastNumber'),
             contrastValue: document.getElementById('contrastValue'),
-            useProjection: document.getElementById('useProjection'),
-            rotationAngleSlider: document.getElementById('rotationAngle'),
-            rotationAngleNumber: document.getElementById('rotationAngleNumber'),
-            rotationAngleValue: document.getElementById('rotationAngleValue'),
             pixelateBtn: document.getElementById('pixelateBtn'),
-            originalCanvas: document.getElementById('originalCanvas'),
-            pixelatedCanvas: document.getElementById('pixelatedCanvas'),
-            projectedCanvas: document.getElementById('projectedCanvas')
+            mainCanvas: document.getElementById('mainCanvas'),
+            canvasTitle: document.getElementById('canvasTitle')
         };
 
         // Algorithm steps state
@@ -351,9 +322,7 @@
             currentStep: 0
         };
 
-        const originalCtx = elements.originalCanvas.getContext('2d');
-        const pixelatedCtx = elements.pixelatedCanvas.getContext('2d');
-        const projectedCtx = elements.projectedCanvas.getContext('2d');
+        const mainCtx = elements.mainCanvas.getContext('2d');
         let currentImage = null;
 
         // Sync slider and number input
@@ -378,10 +347,9 @@
 
         syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
-        syncControl(elements.optimizationIterationsSlider, elements.optimizationIterationsNumber, elements.optimizationIterationsValue, 1, 10, 2);
 
-        // Edge sharpness uses float values, so we need a custom sync function
-        function syncFloatControl(slider, number, valueDisplay, min, max, defaultVal, step = 0.1) {
+        // Edge sharpness uses float values
+        function syncFloatControl(slider, number, valueDisplay, min, max, defaultVal) {
             const syncFromSlider = () => {
                 const value = parseFloat(slider.value);
                 number.value = value.toFixed(1);
@@ -400,15 +368,12 @@
             syncFromSlider();
         }
 
-        syncFloatControl(elements.edgeSharpnessSlider, elements.edgeSharpnessNumber, elements.edgeSharpnessValue, 0, 1, 0.8, 0.1);
-
-        syncControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
-        syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
+        syncFloatControl(elements.edgeSharpnessSlider, elements.edgeSharpnessNumber, elements.edgeSharpnessValue, 0, 1, 0.8);
+        syncFloatControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
 
         // Function to update visibility of edge-aware dependent controls
         function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
-            elements.optimizationIterationsGroup.style.display = isEnabled ? 'block' : 'none';
             elements.edgeSharpnessGroup.style.display = isEnabled ? 'block' : 'none';
             elements.showStepsGroup.style.display = isEnabled ? 'block' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
@@ -426,13 +391,15 @@
             stepsData.currentStep = Math.max(0, Math.min(index, stepsData.intermediates.length - 1));
             const step = stepsData.intermediates[stepsData.currentStep];
 
-            // Update pixelated canvas
-            elements.pixelatedCanvas.width = step.canvas.width;
-            elements.pixelatedCanvas.height = step.canvas.height;
-            pixelatedCtx.drawImage(step.canvas, 0, 0);
+            // Update canvas
+            elements.mainCanvas.width = step.canvas.width;
+            elements.mainCanvas.height = step.canvas.height;
+            mainCtx.drawImage(step.canvas, 0, 0);
 
-            // Update label
+            // Update labels
+            elements.canvasTitle.textContent = step.name;
             elements.stepLabel.textContent = step.name;
+            elements.stepCounter.textContent = `Step ${stepsData.currentStep + 1} of ${stepsData.intermediates.length}`;
         }
 
         function nextStep() {
@@ -449,23 +416,34 @@
 
         function initializeSteps(intermediates) {
             stepsData.intermediates = intermediates;
-            stepsData.currentStep = 0;
+            // Start at the last step (Final Result) by default
+            stepsData.currentStep = intermediates.length - 1;
 
             // Show navigation
             elements.stepNavigation.classList.add('active');
 
-            // Show first step
-            showStep(0);
+            // Show final result
+            showStep(stepsData.currentStep);
         }
 
         // Step control event listeners
         elements.stepPrev.addEventListener('click', prevStep);
         elements.stepNext.addEventListener('click', nextStep);
 
+        // Keyboard navigation for steps
+        document.addEventListener('keydown', (e) => {
+            if (stepsData.intermediates.length === 0) return;
+            if (e.key === 'ArrowLeft') {
+                prevStep();
+            } else if (e.key === 'ArrowRight') {
+                nextStep();
+            }
+        });
+
         // Initialize visibility on page load
         updateEdgeAwareControls();
 
-        // Show/hide optimization iterations based on edge-aware mode
+        // Show/hide edge-aware controls
         elements.useEdgeAware.addEventListener('change', updateEdgeAwareControls);
 
         // Handle image upload
@@ -483,9 +461,15 @@
                 const img = await loadImage(file);
                 currentImage = img;
 
-                elements.originalCanvas.width = img.width;
-                elements.originalCanvas.height = img.height;
-                originalCtx.drawImage(img, 0, 0);
+                // Show original image
+                elements.mainCanvas.width = img.width;
+                elements.mainCanvas.height = img.height;
+                mainCtx.drawImage(img, 0, 0);
+                elements.canvasTitle.textContent = 'Original Image';
+
+                // Hide step navigation until pixelation with steps
+                elements.stepNavigation.classList.remove('active');
+                stepsData.intermediates = [];
 
                 elements.pixelateBtn.disabled = false;
                 elements.pixelateBtn.textContent = 'Pixelate Image';
@@ -498,12 +482,7 @@
 
         // Handle pixelation
         elements.pixelateBtn.addEventListener('click', async () => {
-            // Prevent multiple simultaneous clicks
-            if (elements.pixelateBtn.disabled) {
-                return;
-            }
-
-            // Disable button immediately when clicked
+            if (elements.pixelateBtn.disabled) return;
             elements.pixelateBtn.disabled = true;
 
             if (!currentImage) {
@@ -521,13 +500,10 @@
             try {
                 elements.pixelateBtn.textContent = useEdgeAware ? 'Processing (Edge-Aware)...' : 'Processing...';
 
-                // Allow UI to update before starting processing
                 await new Promise(resolve => setTimeout(resolve, 0));
 
                 let pixelated;
                 if (useEdgeAware) {
-                    // Use edge-aware pixelation
-                    const numIterations = parseInt(elements.optimizationIterationsSlider.value);
                     const contrast = parseFloat(elements.contrastSlider.value);
                     const edgeSharpness = parseFloat(elements.edgeSharpnessSlider.value);
                     const showSteps = elements.showAlgorithmSteps.checked;
@@ -536,7 +512,7 @@
                     const result = await pixelateImageEdgeAware(currentImage, pixelSize, {
                         returnCanvas: true,
                         searchSteps: 9,
-                        numIterations: numIterations,
+                        numIterations: 3,
                         colorLimit: colorLimit,
                         contrast: contrast,
                         edgeSharpness: edgeSharpness,
@@ -552,14 +528,10 @@
                         }
                     });
 
-                    // Handle result based on whether intermediates were captured
                     if (showSteps && result.intermediates) {
                         pixelated = result.canvas;
-
-                        // Initialize step navigation
                         initializeSteps(result.intermediates);
 
-                        // Update GPU status
                         if (result.usingGPU) {
                             elements.gpuStatus.textContent = '✓ Using GPU acceleration';
                             elements.gpuStatus.style.color = '#4caf50';
@@ -572,12 +544,11 @@
                         elements.stepNavigation.classList.remove('active');
                         stepsData.intermediates = [];
 
-                        // Display pixelated result
-                        elements.pixelatedCanvas.width = pixelated.width;
-                        elements.pixelatedCanvas.height = pixelated.height;
-                        pixelatedCtx.drawImage(pixelated, 0, 0);
+                        elements.mainCanvas.width = pixelated.width;
+                        elements.mainCanvas.height = pixelated.height;
+                        mainCtx.drawImage(pixelated, 0, 0);
+                        elements.canvasTitle.textContent = 'Pixelated Image';
 
-                        // Check canvas metadata as fallback
                         if (pixelated._usingGPU !== undefined) {
                             if (pixelated._usingGPU) {
                                 elements.gpuStatus.textContent = '✓ Using GPU acceleration';
@@ -589,9 +560,7 @@
                         }
                     }
                 } else {
-                    // Use simple pixelation (synchronous, but wrapped to allow UI update)
                     const contrast = parseFloat(elements.contrastSlider.value);
-                    // Use requestAnimationFrame to ensure UI updates before blocking operation
                     await new Promise(resolve => requestAnimationFrame(resolve));
                     pixelated = pixelateImage(currentImage, pixelSize, {
                         returnCanvas: true,
@@ -599,35 +568,13 @@
                         contrast: contrast
                     });
 
-                    // Hide step navigation for simple pixelation
                     elements.stepNavigation.classList.remove('active');
                     stepsData.intermediates = [];
 
-                    // Display pixelated result
-                    elements.pixelatedCanvas.width = pixelated.width;
-                    elements.pixelatedCanvas.height = pixelated.height;
-                    pixelatedCtx.drawImage(pixelated, 0, 0);
-                }
-
-                // Apply projection if enabled
-                if (elements.useProjection.checked) {
-                    const angle = (parseFloat(elements.rotationAngleSlider.value) * Math.PI) / 180;
-                    const centerX = pixelated.width / 2;
-                    const centerY = pixelated.height / 2;
-                    const transform = rotationMatrix(angle, centerX, centerY);
-
-                    const projected = applyProjection(pixelated, transform, {
-                        returnCanvas: true,
-                        interpolation: 'nearest'
-                    });
-
-                    elements.projectedCanvas.width = projected.width;
-                    elements.projectedCanvas.height = projected.height;
-                    projectedCtx.drawImage(projected, 0, 0);
-                } else {
-                    // Clear projection canvas
-                    elements.projectedCanvas.width = 0;
-                    elements.projectedCanvas.height = 0;
+                    elements.mainCanvas.width = pixelated.width;
+                    elements.mainCanvas.height = pixelated.height;
+                    mainCtx.drawImage(pixelated, 0, 0);
+                    elements.canvasTitle.textContent = 'Pixelated Image';
                 }
 
                 elements.pixelateBtn.disabled = false;
@@ -636,25 +583,6 @@
                 alert('Failed to pixelate image: ' + error.message);
                 elements.pixelateBtn.disabled = false;
                 elements.pixelateBtn.textContent = 'Pixelate Image';
-            }
-        });
-
-        // Update projection when rotation angle changes (if projection is enabled)
-        elements.rotationAngleSlider.addEventListener('input', () => {
-            if (elements.useProjection.checked && currentImage && !elements.pixelateBtn.disabled) {
-                elements.pixelateBtn.click();
-            }
-        });
-        elements.rotationAngleNumber.addEventListener('input', () => {
-            if (elements.useProjection.checked && currentImage && !elements.pixelateBtn.disabled) {
-                elements.pixelateBtn.click();
-            }
-        });
-
-        // Update projection when checkbox is toggled
-        elements.useProjection.addEventListener('change', () => {
-            if (currentImage && elements.pixelatedCanvas.width > 0 && !elements.pixelateBtn.disabled) {
-                elements.pixelateBtn.click();
             }
         });
     </script>

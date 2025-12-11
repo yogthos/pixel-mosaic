@@ -56,6 +56,11 @@ function createWebGLContext(canvas) {
       // Calculate gradient magnitude
       float magnitude = sqrt(sobelX * sobelX + sobelY * sobelY);
 
+      // Normalize magnitude to [0, 1] range
+      // Max theoretical magnitude for normalized [0,1] input with Sobel is ~5.66
+      // Use 6.0 as divisor to ensure we stay in [0, 1] range
+      float magnitudeNormalized = magnitude / 6.0;
+
       // Calculate edge direction (perpendicular to gradient)
       // atan2 returns [-π, π], we add π/2 and normalize to [0, 2π)
       float direction = atan(sobelY, sobelX) + 3.14159265359 / 2.0;
@@ -64,8 +69,8 @@ function createWebGLContext(canvas) {
       // Normalize direction to [0, 1] for storage in texture
       float directionNormalized = direction / (2.0 * 3.14159265359);
 
-      // Output: R = magnitude, G = direction (normalized), B = unused, A = 1.0
-      gl_FragColor = vec4(magnitude, directionNormalized, 0.0, 1.0);
+      // Output: R = magnitude (normalized), G = direction (normalized), B = unused, A = 1.0
+      gl_FragColor = vec4(magnitudeNormalized, directionNormalized, 0.0, 1.0);
     }
   `;
 
@@ -177,12 +182,12 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
   } = options;
 
   // Map edgeSharpness (0-1) to threshold for edge detection
-  // edgeSharpness 0.0 -> threshold 0.1 (keep top 90% - very soft, many edges)
-  // edgeSharpness 0.5 -> threshold 0.35 (keep top 65% - moderate)
-  // edgeSharpness 1.0 -> threshold 0.6 (keep top 40% - sharp, focused edges)
-  // Wider range allows more visible difference between soft and sharp settings
+  // Lower thresholds keep more edges
+  // edgeSharpness 0.0 -> threshold 0.02 (keep top 98% - very soft, many edges)
+  // edgeSharpness 0.5 -> threshold 0.10 (keep top 90% - moderate)
+  // edgeSharpness 1.0 -> threshold 0.20 (keep top 80% - sharper, fewer edges)
   if (threshold === null) {
-    threshold = 0.1 + edgeSharpness * 0.5;
+    threshold = 0.02 + edgeSharpness * 0.18;
   }
 
   const { width, height } = imageData;
@@ -194,6 +199,7 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
 
   const webgl = createWebGLContext(canvas);
   if (!webgl) {
+    console.warn('WebGL not available, falling back to CPU');
     return null; // WebGL not available, fallback to CPU
   }
 
@@ -224,19 +230,48 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
   gl.uniform1i(gl.getUniformLocation(program, 'u_image'), 0);
   gl.uniform2f(gl.getUniformLocation(program, 'u_textureSize'), width, height);
 
-  // Create framebuffer
-  const framebuffer = gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-
+  // Create output texture for framebuffer
   const outputTexture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, outputTexture);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  // Must use CLAMP_TO_EDGE for non-power-of-two textures
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  // Create and setup framebuffer
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outputTexture, 0);
+
+  // Check framebuffer status BEFORE drawing
+  const fbStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (fbStatus !== gl.FRAMEBUFFER_COMPLETE) {
+    console.error('WebGL framebuffer incomplete:', fbStatus);
+    gl.deleteTexture(texture);
+    gl.deleteTexture(outputTexture);
+    gl.deleteFramebuffer(framebuffer);
+    return null;
+  }
+
+  // Re-bind input texture for drawing (framebuffer setup may have unbound it)
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
 
   // Draw
   gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // Check for WebGL errors
+  const error = gl.getError();
+  if (error !== gl.NO_ERROR) {
+    console.error('WebGL error during rendering:', error);
+    // Cleanup and fallback to CPU
+    gl.deleteTexture(texture);
+    gl.deleteTexture(outputTexture);
+    gl.deleteFramebuffer(framebuffer);
+    return null;
+  }
 
   // Read result
   const pixels = new Uint8Array(width * height * 4);
@@ -245,15 +280,22 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
   // Extract magnitude and direction from GPU output
   const magnitudeMap = new Float32Array(width * height);
   const directionMap = new Float32Array(width * height);
-  let maxEdge = 0;
+
+  // Debug: check what values we got from WebGL
+  let nonZeroCount = 0;
+  let maxPixelValue = 0;
+  let sampleValues = [];
 
   for (let i = 0; i < width * height; i++) {
-    // Red channel contains magnitude (0-255)
-    const magnitude = pixels[i * 4];
-    magnitudeMap[i] = magnitude;
-    if (magnitude > maxEdge) {
-      maxEdge = magnitude;
+    const pixelValue = pixels[i * 4];
+    if (pixelValue > 0) nonZeroCount++;
+    if (pixelValue > maxPixelValue) maxPixelValue = pixelValue;
+    if (sampleValues.length < 10 && pixelValue > 0) {
+      sampleValues.push(pixelValue);
     }
+
+    // Red channel contains normalized magnitude (0-255 maps to 0-1)
+    magnitudeMap[i] = pixelValue / 255.0;
 
     // Green channel contains direction normalized to [0, 1]
     // Convert back to radians [0, 2π]
@@ -261,12 +303,7 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
     directionMap[i] = directionNormalized * 2 * Math.PI;
   }
 
-  // Normalize magnitude map to 0-1 range
-  if (maxEdge > 0) {
-    for (let i = 0; i < magnitudeMap.length; i++) {
-      magnitudeMap[i] /= maxEdge;
-    }
-  }
+  console.log(`WebGL raw output: ${nonZeroCount} non-zero pixels, max=${maxPixelValue}, samples=[${sampleValues.join(',')}]`);
 
   let edgeMap = magnitudeMap;
 
@@ -274,9 +311,12 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
   if (applyNMS) {
     edgeMap = applyNonMaximumSuppression(magnitudeMap, directionMap, width, height);
 
-    // Don't re-normalize after NMS - this preserves the original magnitude relationships
-    // Re-normalization was making all values too high, reducing thresholding effectiveness
-    // The original normalization before NMS is sufficient
+    // Debug: count edges after NMS
+    let nmsCount = 0;
+    for (let i = 0; i < edgeMap.length; i++) {
+      if (edgeMap[i] > 0) nmsCount++;
+    }
+    console.log(`WebGL after NMS: ${nmsCount} edges remaining`);
   }
 
   // Apply thresholding
@@ -285,6 +325,13 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
     highThreshold,
     lowThreshold
   });
+
+  // Debug: count edges after thresholding
+  let finalCount = 0;
+  for (let i = 0; i < edgeMap.length; i++) {
+    if (edgeMap[i] > 0) finalCount++;
+  }
+  console.log(`WebGL after thresholding (t=${threshold.toFixed(3)}): ${finalCount} edges remaining`);
 
   // Cleanup
   gl.deleteTexture(texture);

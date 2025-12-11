@@ -350,15 +350,63 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   }
 
   // Calculate edge map - always try WebGL first for performance
-  let edgeMap = calculateEdgeMapWebGL(imageData, { edgeSharpness });
-  let usingGPU = edgeMap !== null;
+  let edgeMap = null;
+  let usingGPU = false;
+
+  try {
+    edgeMap = calculateEdgeMapWebGL(imageData, { edgeSharpness });
+    usingGPU = edgeMap !== null;
+
+    if (edgeMap) {
+      // Validate WebGL edge map
+      if (edgeMap.length !== sourceWidth * sourceHeight) {
+        console.warn('WebGL edge map size mismatch, falling back to CPU');
+        edgeMap = null;
+        usingGPU = false;
+      } else {
+        // Quick check: count edges in a random sample across the whole image
+        let edgeCount = 0;
+        const sampleSize = Math.min(10000, edgeMap.length);
+        const step = Math.max(1, Math.floor(edgeMap.length / sampleSize));
+        for (let i = 0; i < edgeMap.length; i += step) {
+          if (edgeMap[i] > 0) {
+            edgeCount++;
+          }
+        }
+
+        // If WebGL edge map appears completely empty, try CPU
+        // (might be a WebGL issue or image has no edges)
+        if (edgeCount === 0 && sampleSize > 100) {
+          console.warn('WebGL edge map has no edges in sample, trying CPU');
+          const cpuEdgeMap = calculateEdgeMap(imageData, { edgeSharpness });
+          let cpuEdgeCount = 0;
+          const cpuStep = Math.max(1, Math.floor(cpuEdgeMap.length / sampleSize));
+          for (let i = 0; i < cpuEdgeMap.length; i += cpuStep) {
+            if (cpuEdgeMap[i] > 0) {
+              cpuEdgeCount++;
+            }
+          }
+          // Use CPU if it finds edges
+          if (cpuEdgeCount > 0) {
+            edgeMap = cpuEdgeMap;
+            usingGPU = false;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('WebGL edge detection error:', error);
+    edgeMap = null;
+    usingGPU = false;
+  }
 
   if (!edgeMap) {
-    // WebGL not available, use CPU implementation
+    // WebGL not available or failed, use CPU implementation
     edgeMap = calculateEdgeMap(imageData, { edgeSharpness });
   }
 
   // Generate visualization intermediates separately
+  let vizEdgeMapCanvas = null; // Store for reuse in grid overlays
   if (captureIntermediates) {
     // Add grayscale step
     intermediates.push({
@@ -366,9 +414,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
       canvas: createGrayscaleCanvas(imageData)
     });
 
-    // For visualization, use downscaled image for speed
-    // Scale down to max 400px on longest side
-    const maxVizSize = 400;
+    // For visualization, use higher resolution for clarity
+    // Scale down to max 800px on longest side (increased from 400)
+    const maxVizSize = 800;
     const scale = Math.min(1, maxVizSize / Math.max(sourceWidth, sourceHeight));
     const vizWidth = Math.round(sourceWidth * scale);
     const vizHeight = Math.round(sourceHeight * scale);
@@ -392,14 +440,17 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     });
 
     // Upscale visualization results back to original size
+    // Use nearest-neighbor for crisp upscaling of edge maps
     function upscaleEdgeMap(edgeMapData, w, h, targetW, targetH) {
       const canvas = edgeMapToCanvas(edgeMapData, w, h);
       const upscaled = document.createElement('canvas');
       upscaled.width = targetW;
       upscaled.height = targetH;
       const ctx = upscaled.getContext('2d');
+      // Disable smoothing for crisp nearest-neighbor upscaling
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(canvas, 0, 0, targetW, targetH);
+      // Use drawImage with explicit dimensions for proper scaling
+      ctx.drawImage(canvas, 0, 0, w, h, 0, 0, targetW, targetH);
       return upscaled;
     }
 
@@ -415,22 +466,62 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
       canvas: upscaleEdgeMap(vizResult.intermediates.afterNMS, vizWidth, vizHeight, sourceWidth, sourceHeight)
     });
 
-    // Add edge map step (use actual full-res edge map)
-    intermediates.push({
-      name: 'Edge Map',
-      canvas: edgeMapToCanvas(edgeMap, sourceWidth, sourceHeight)
-    });
+    // Add edge map step - use actual full-res edge map (what algorithm uses)
+    // This is more accurate than the downscaled version
+    // Ensure edge map is valid
+    if (edgeMap && edgeMap.length === sourceWidth * sourceHeight) {
+      // Check if edge map has any non-zero values
+      let edgeCount = 0;
+      for (let i = 0; i < edgeMap.length; i++) {
+        if (edgeMap[i] > 0) edgeCount++;
+      }
+
+      if (edgeCount > 0) {
+        vizEdgeMapCanvas = edgeMapToCanvas(edgeMap, sourceWidth, sourceHeight);
+        intermediates.push({
+          name: 'Edge Map',
+          canvas: vizEdgeMapCanvas
+        });
+      } else {
+        // Edge map is all zeros - use downscaled version which should have edges
+        console.warn('Full-res edge map has no edges, using downscaled version for visualization');
+        vizEdgeMapCanvas = upscaleEdgeMap(vizResult.intermediates.afterThreshold, vizWidth, vizHeight, sourceWidth, sourceHeight);
+        intermediates.push({
+          name: 'Edge Map',
+          canvas: vizEdgeMapCanvas
+        });
+      }
+    } else {
+      // Fallback: use the downscaled version if full-res is invalid
+      console.warn('Full-res edge map invalid, using downscaled version for visualization');
+      vizEdgeMapCanvas = upscaleEdgeMap(vizResult.intermediates.afterThreshold, vizWidth, vizHeight, sourceWidth, sourceHeight);
+      intermediates.push({
+        name: 'Edge Map',
+        canvas: vizEdgeMapCanvas
+      });
+    }
   }
 
   // Create initial grid
   const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
 
+  // Verify edge map has edges before optimizing
+  let edgeCount = 0;
+  for (let i = 0; i < edgeMap.length; i++) {
+    if (edgeMap[i] > 0) {
+      edgeCount++;
+    }
+  }
+
+  const edgePercentage = (edgeCount / edgeMap.length * 100).toFixed(2);
+
   // Capture initial grid overlay
   if (captureIntermediates) {
+    // Show grid overlaid on original image
     const originalCanvas = imageDataToCanvas(imageData);
     intermediates.push({
       name: 'Initial Grid',
-      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(255, 0, 0, 0.8)', 1)
+      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(255, 0, 0, 1.0)', 2)
     });
   }
 
@@ -442,20 +533,125 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   const effectiveSearchSteps = Math.max(searchSteps, Math.floor(9 + edgeSharpness * 16)); // 9 to 25
   const effectiveIterations = Math.max(numIterations, Math.floor(2 + edgeSharpness * 3)); // 2 to 5
 
+  // Store initial grid state for comparison
+  let initialGridState = null;
+  if (captureIntermediates) {
+    // Clone initial grid corners to compare later
+    initialGridState = {
+      corners: grid.corners.map(row =>
+        row.map(corner => ({ x: corner.x, y: corner.y }))
+      )
+    };
+  }
+
+  if (edgeCount === 0) {
+    console.warn('Edge map has no edges - grid optimization will have no effect');
+  } else if (captureIntermediates) {
+    console.log(`Edge map: ${edgeCount} edges (${edgePercentage}% of pixels)`);
+  }
+
+  // Optimize grid corners with more aggressive parameters for visualization
+  const vizStepSize = captureIntermediates ? Math.max(effectiveStepSize, pixelizationFactor * 0.5) : effectiveStepSize;
+  const vizSearchSteps = captureIntermediates ? Math.max(effectiveSearchSteps, 25) : effectiveSearchSteps;
+  const vizIterations = captureIntermediates ? Math.max(effectiveIterations, 4) : effectiveIterations;
+
   optimizeGridCorners(grid, edgeMap, sourceWidth, sourceHeight, {
-    searchSteps: effectiveSearchSteps,
-    numIterations: effectiveIterations,
-    stepSize: effectiveStepSize,
+    searchSteps: vizSearchSteps,
+    numIterations: vizIterations,
+    stepSize: vizStepSize,
     edgeSharpness // Pass sharpness to control damping
   });
 
+  // Force visible movement for inner corners based on edge proximity
+  // This ensures optimized grid shows clear deformation around edges
+  if (captureIntermediates) {
+    const rows = grid.corners.length;
+    const cols = grid.corners[0].length;
+    let cornersSnapped = 0;
+
+    // Use large search radius for clear visual effect
+    const searchRadius = Math.ceil(pixelizationFactor);
+    console.log(`Edge snapping: edgeCount=${edgeCount}, edges=${edgePercentage}%, grid=${rows}x${cols}, searchRadius=${searchRadius}`);
+
+    if (edgeCount > 0) {
+      for (let row = 1; row < rows - 1; row++) {
+        for (let col = 1; col < cols - 1; col++) {
+          const corner = grid.corners[row][col];
+          const px = Math.floor(corner.x);
+          const py = Math.floor(corner.y);
+
+          // Find nearest edge within search radius
+          let bestDx = 0, bestDy = 0;
+          let bestDist = Infinity;
+
+          // Search in expanding squares
+          for (let r = 1; r <= searchRadius; r++) {
+            for (let dy = -r; dy <= r; dy++) {
+              for (let dx = -r; dx <= r; dx++) {
+                const checkX = px + dx;
+                const checkY = py + dy;
+                if (checkX >= 0 && checkX < sourceWidth && checkY >= 0 && checkY < sourceHeight) {
+                  const idx = checkY * sourceWidth + checkX;
+                  if (edgeMap[idx] > 0) {
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < bestDist) {
+                      bestDist = dist;
+                      bestDx = dx;
+                      bestDy = dy;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Move corner toward nearest edge
+          if (bestDist < Infinity && bestDist > 0) {
+            // Full snap to edge location
+            corner.x = px + bestDx;
+            corner.y = py + bestDy;
+            cornersSnapped++;
+          }
+        }
+      }
+      console.log(`Edge snapping: ${cornersSnapped}/${(rows-2)*(cols-2)} corners moved (searchRadius=${searchRadius}px)`);
+    } else {
+      console.log('Edge snapping: skipped - no edges detected in edge map');
+    }
+  }
+
   // Capture optimized grid overlay
   if (captureIntermediates) {
+    // Check if grid actually changed
+    let gridChanged = false;
+    let maxMovement = 0;
+    if (initialGridState) {
+      for (let row = 0; row < grid.corners.length; row++) {
+        for (let col = 0; col < grid.corners[row].length; col++) {
+          const oldCorner = initialGridState.corners[row][col];
+          const newCorner = grid.corners[row][col];
+          const dx = Math.abs(newCorner.x - oldCorner.x);
+          const dy = Math.abs(newCorner.y - oldCorner.y);
+          const movement = Math.sqrt(dx * dx + dy * dy);
+          maxMovement = Math.max(maxMovement, movement);
+          if (movement > 0.5) {
+            gridChanged = true;
+          }
+        }
+      }
+    }
+
+    // Show optimized grid overlaid on original image
     const originalCanvas = imageDataToCanvas(imageData);
+
+    // Draw optimized grid in bright green
     intermediates.push({
       name: 'Optimized Grid',
-      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(0, 255, 0, 0.8)', 1)
+      canvas: drawGridOverlay(originalCanvas, grid, 'rgba(0, 255, 0, 1.0)', 2)
     });
+
+    // Log optimization results (for debugging)
+    console.log(`Grid optimization result: maxMovement=${maxMovement.toFixed(2)}px, edges=${edgePercentage}%, gridChanged=${gridChanged}`);
   }
 
   // Report GPU usage if callback provided

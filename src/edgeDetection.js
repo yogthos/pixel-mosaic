@@ -231,12 +231,12 @@ export function calculateEdgeMap(imageData, options = {}) {
   } = options;
 
   // Map edgeSharpness (0-1) to threshold for edge detection
-  // edgeSharpness 0.0 -> threshold 0.1 (keep top 90% - very soft, many edges)
-  // edgeSharpness 0.5 -> threshold 0.35 (keep top 65% - moderate)
-  // edgeSharpness 1.0 -> threshold 0.6 (keep top 40% - sharp, focused edges)
-  // Wider range allows more visible difference between soft and sharp settings
+  // Lower thresholds keep more edges
+  // edgeSharpness 0.0 -> threshold 0.02 (keep top 98% - very soft, many edges)
+  // edgeSharpness 0.5 -> threshold 0.10 (keep top 90% - moderate)
+  // edgeSharpness 1.0 -> threshold 0.20 (keep top 80% - sharper, fewer edges)
   if (threshold === null) {
-    threshold = 0.1 + edgeSharpness * 0.5;
+    threshold = 0.02 + edgeSharpness * 0.18;
   }
 
   const { data, width, height } = imageData;
