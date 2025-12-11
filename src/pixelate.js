@@ -670,8 +670,6 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
 
   if (edgeCount === 0) {
     console.warn('Edge map has no edges - grid optimization will have no effect');
-  } else if (captureIntermediates) {
-    console.log(`Edge map: ${edgeCount} edges (${edgePercentage}% of pixels)`);
   }
 
   // Optimize grid corners with more aggressive parameters for visualization
@@ -691,11 +689,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   if (captureIntermediates) {
     const rows = grid.corners.length;
     const cols = grid.corners[0].length;
-    let cornersSnapped = 0;
 
     // Use large search radius for clear visual effect
     const searchRadius = Math.ceil(pixelizationFactor);
-    console.log(`Edge snapping: edgeCount=${edgeCount}, edges=${edgePercentage}%, grid=${rows}x${cols}, searchRadius=${searchRadius}`);
 
     if (edgeCount > 0) {
       for (let row = 1; row < rows - 1; row++) {
@@ -734,37 +730,14 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
             // Full snap to edge location
             corner.x = px + bestDx;
             corner.y = py + bestDy;
-            cornersSnapped++;
           }
         }
       }
-      console.log(`Edge snapping: ${cornersSnapped}/${(rows-2)*(cols-2)} corners moved (searchRadius=${searchRadius}px)`);
-    } else {
-      console.log('Edge snapping: skipped - no edges detected in edge map');
     }
   }
 
   // Capture optimized grid overlay
   if (captureIntermediates) {
-    // Check if grid actually changed
-    let gridChanged = false;
-    let maxMovement = 0;
-    if (initialGridState) {
-      for (let row = 0; row < grid.corners.length; row++) {
-        for (let col = 0; col < grid.corners[row].length; col++) {
-          const oldCorner = initialGridState.corners[row][col];
-          const newCorner = grid.corners[row][col];
-          const dx = Math.abs(newCorner.x - oldCorner.x);
-          const dy = Math.abs(newCorner.y - oldCorner.y);
-          const movement = Math.sqrt(dx * dx + dy * dy);
-          maxMovement = Math.max(maxMovement, movement);
-          if (movement > 0.5) {
-            gridChanged = true;
-          }
-        }
-      }
-    }
-
     // Show optimized grid overlaid on original image
     const originalCanvas = imageDataToCanvas(imageData);
 
@@ -773,9 +746,6 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
       name: 'Optimized Grid',
       canvas: drawGridOverlay(originalCanvas, grid, 'rgba(0, 255, 0, 1.0)', 2)
     });
-
-    // Log optimization results (for debugging)
-    console.log(`Grid optimization result: maxMovement=${maxMovement.toFixed(2)}px, edges=${edgePercentage}%, gridChanged=${gridChanged}`);
   }
 
   // Report GPU usage if callback provided

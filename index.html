@@ -35,46 +35,41 @@
         }
 
         .controls {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 30px;
         }
 
         .control-section {
             background: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
+            border-radius: 6px;
+            padding: 12px;
             border: 1px solid #e9ecef;
-            transition: box-shadow 0.2s ease;
-        }
-
-        .control-section:hover {
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
 
         .control-section-title {
-            font-size: 0.95em;
+            font-size: 0.8em;
             font-weight: 700;
             color: #495057;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #dee2e6;
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #dee2e6;
         }
 
         .control-section-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 20px;
+            grid-template-columns: 1fr;
+            gap: 12px;
         }
 
         .control-group {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            min-height: 60px;
+            gap: 6px;
+            min-height: 50px;
             transition: opacity 0.2s ease;
         }
 
@@ -83,14 +78,10 @@
             opacity: 0;
         }
 
-        .control-group.full-width {
-            grid-column: 1 / -1;
-        }
-
         label {
             font-weight: 600;
             color: #555;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
         input[type="checkbox"] {
@@ -147,11 +138,11 @@
         }
 
         input[type="number"] {
-            width: 80px;
-            padding: 6px 8px;
+            width: 70px;
+            padding: 4px 6px;
             border: 1px solid #ddd;
             border-radius: 4px;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
         input[type="number"]:focus {
@@ -175,12 +166,12 @@
         }
 
         button {
-            padding: 14px 28px;
+            padding: 10px 20px;
             background: #667eea;
             color: white;
             border: none;
             border-radius: 6px;
-            font-size: 1em;
+            font-size: 0.9em;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -209,7 +200,8 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-top: 30px;
+            margin-top: 20px;
+            margin-bottom: 20px;
         }
 
         .canvas-wrapper {
@@ -218,9 +210,9 @@
         }
 
         .canvas-wrapper h2 {
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             color: #333;
-            font-size: 1.3em;
+            font-size: 1.1em;
         }
 
         canvas {
@@ -257,22 +249,22 @@
         }
 
         .step-navigation button {
-            padding: 10px 20px;
-            font-size: 1em;
-            min-width: 100px;
+            padding: 8px 16px;
+            font-size: 0.9em;
+            min-width: 90px;
         }
 
         .step-label {
             font-weight: 600;
             color: #333;
-            font-size: 1.1em;
-            min-width: 200px;
+            font-size: 1em;
+            min-width: 180px;
             text-align: center;
         }
 
         .step-counter {
             color: #666;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
         .github-link {
@@ -306,21 +298,41 @@
     <div class="container">
         <h1>🎨 Pixel Mosaic</h1>
 
-        <div class="controls">
-            <!-- Image Upload Section -->
-            <div class="control-section">
-                <div class="control-section-title">📤 Image Upload</div>
-                <div class="control-section-grid">
-                    <div class="control-group full-width">
-                        <label for="imageInput">Upload Image</label>
-                        <input type="file" id="imageInput" accept="image/*">
-                    </div>
+        <!-- Image Upload Section -->
+        <div class="control-section" style="max-width: 400px; margin: 0 auto 20px;">
+            <div class="control-section-title">📤 Image Upload</div>
+            <div class="control-section-grid">
+                <div class="control-group">
+                    <label for="imageInput">Upload Image</label>
+                    <input type="file" id="imageInput" accept="image/*">
                 </div>
             </div>
+        </div>
 
+        <!-- Canvas Output -->
+        <div class="canvas-container">
+            <div class="canvas-wrapper">
+                <h2 id="canvasTitle">Upload an image to begin</h2>
+                <canvas id="mainCanvas"></canvas>
+                <div style="margin-top: 15px;">
+                    <button id="pixelateBtn" disabled>Pixelate Image</button>
+                </div>
+                <div class="step-navigation" id="stepNavigation">
+                    <button id="stepPrev">← Previous</button>
+                    <div>
+                        <div class="step-label" id="stepLabel">Original</div>
+                        <div class="step-counter" id="stepCounter"></div>
+                    </div>
+                    <button id="stepNext">Next →</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
             <!-- Pixelation Settings Section -->
             <div class="control-section">
-                <div class="control-section-title">🎨 Pixelation Settings</div>
+                <div class="control-section-title">🎨 Pixelation</div>
                 <div class="control-section-grid">
                     <div class="control-group">
                         <label for="pixelSize">Pixel Size: <span id="pixelSizeValue">3</span></label>
@@ -351,14 +363,14 @@
 
             <!-- Edge-Aware Settings Section -->
             <div class="control-section">
-                <div class="control-section-title">🔍 Edge-Aware Processing</div>
+                <div class="control-section-title">🔍 Edge-Aware</div>
                 <div class="control-section-grid">
                     <div class="control-group">
                         <label>
                             <input type="checkbox" id="useEdgeAware">
-                            Enable Edge-Aware Pixelation
+                            Enable Edge-Aware
                         </label>
-                        <div id="gpuIndicator" style="display: none; margin-top: 6px; font-size: 0.85em; color: #666;">
+                        <div id="gpuIndicator" style="display: none; margin-top: 4px; font-size: 0.75em; color: #666;">
                             <span id="gpuStatus">Checking GPU...</span>
                         </div>
                     </div>
@@ -380,44 +392,20 @@
 
             <!-- Transformation Settings Section -->
             <div class="control-section">
-                <div class="control-section-title">🔄 Transformations</div>
+                <div class="control-section-title">🔄 Transform</div>
                 <div class="control-section-grid">
                     <div class="control-group">
                         <label>
                             <input type="checkbox" id="useProjection">
-                            Apply Rotation (Projection)
+                            Apply Rotation
                         </label>
                     </div>
 
                     <div class="control-group" id="rotationGroup" style="display: none;">
-                        <label for="rotationAngle">Rotation Angle: <span id="rotationAngleValue">0</span>°</label>
+                        <label for="rotationAngle">Rotation: <span id="rotationAngleValue">0</span>°</label>
                         <input type="range" id="rotationAngle" min="0" max="360" value="0">
                         <input type="number" id="rotationAngleNumber" min="0" max="360" value="0">
                     </div>
-                </div>
-            </div>
-
-            <!-- Action Section -->
-            <div class="control-section">
-                <div class="control-section-grid">
-                    <div class="control-group full-width">
-                        <button id="pixelateBtn" disabled>Pixelate Image</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="canvas-container">
-            <div class="canvas-wrapper">
-                <h2 id="canvasTitle">Upload an image to begin</h2>
-                <canvas id="mainCanvas"></canvas>
-                <div class="step-navigation" id="stepNavigation">
-                    <button id="stepPrev">← Previous</button>
-                    <div>
-                        <div class="step-label" id="stepLabel">Original</div>
-                        <div class="step-counter" id="stepCounter"></div>
-                    </div>
-                    <button id="stepNext">Next →</button>
                 </div>
             </div>
         </div>

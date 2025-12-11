@@ -437,18 +437,12 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
   const baseDamping = 0.3 + edgeSharpness * 0.5; // 0.3 to 0.8
   const dampingRange = 0.2 * (1 - edgeSharpness * 0.5); // 0.2 to 0.1
 
-  // Track total movement for debugging
-  let totalMovement = 0;
-  let cornersImproved = 0;
-
   // Optimization loop
   for (let iteration = 0; iteration < numIterations; iteration++) {
     // Process each corner (excluding border corners to keep grid connected)
     for (let row = 1; row < rows - 1; row++) {
       for (let col = 1; col < cols - 1; col++) {
         const corner = corners[row][col];
-        const originalX = corner.x;
-        const originalY = corner.y;
         let bestX = corner.x;
         let bestY = corner.y;
 
@@ -523,26 +517,10 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
         const deltaX = bestX - corner.x;
         const deltaY = bestY - corner.y;
 
-        if (deltaX !== 0 || deltaY !== 0) {
-          cornersImproved++;
-        }
-
         corner.x += deltaX * damping;
         corner.y += deltaY * damping;
-
-        // Track movement from original position
-        const moved = Math.sqrt(
-          Math.pow(corner.x - originalX, 2) + Math.pow(corner.y - originalY, 2)
-        );
-        totalMovement += moved;
       }
     }
-  }
-
-  // Log optimization results
-  const innerCorners = (rows - 2) * (cols - 2);
-  if (innerCorners > 0) {
-    console.log(`Grid optimization: ${cornersImproved}/${innerCorners * numIterations} improvements, avg movement: ${(totalMovement / innerCorners).toFixed(2)}px`);
   }
 
   return grid;

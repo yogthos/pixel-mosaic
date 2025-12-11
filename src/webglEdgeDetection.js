@@ -281,21 +281,9 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
   const magnitudeMap = new Float32Array(width * height);
   const directionMap = new Float32Array(width * height);
 
-  // Debug: check what values we got from WebGL
-  let nonZeroCount = 0;
-  let maxPixelValue = 0;
-  let sampleValues = [];
-
   for (let i = 0; i < width * height; i++) {
-    const pixelValue = pixels[i * 4];
-    if (pixelValue > 0) nonZeroCount++;
-    if (pixelValue > maxPixelValue) maxPixelValue = pixelValue;
-    if (sampleValues.length < 10 && pixelValue > 0) {
-      sampleValues.push(pixelValue);
-    }
-
     // Red channel contains normalized magnitude (0-255 maps to 0-1)
-    magnitudeMap[i] = pixelValue / 255.0;
+    magnitudeMap[i] = pixels[i * 4] / 255.0;
 
     // Green channel contains direction normalized to [0, 1]
     // Convert back to radians [0, 2π]
@@ -303,20 +291,11 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
     directionMap[i] = directionNormalized * 2 * Math.PI;
   }
 
-  console.log(`WebGL raw output: ${nonZeroCount} non-zero pixels, max=${maxPixelValue}, samples=[${sampleValues.join(',')}]`);
-
   let edgeMap = magnitudeMap;
 
   // Apply non-maximum suppression if requested
   if (applyNMS) {
     edgeMap = applyNonMaximumSuppression(magnitudeMap, directionMap, width, height);
-
-    // Debug: count edges after NMS
-    let nmsCount = 0;
-    for (let i = 0; i < edgeMap.length; i++) {
-      if (edgeMap[i] > 0) nmsCount++;
-    }
-    console.log(`WebGL after NMS: ${nmsCount} edges remaining`);
   }
 
   // Apply thresholding
@@ -325,13 +304,6 @@ export function calculateEdgeMapWebGL(imageData, options = {}) {
     highThreshold,
     lowThreshold
   });
-
-  // Debug: count edges after thresholding
-  let finalCount = 0;
-  for (let i = 0; i < edgeMap.length; i++) {
-    if (edgeMap[i] > 0) finalCount++;
-  }
-  console.log(`WebGL after thresholding (t=${threshold.toFixed(3)}): ${finalCount} edges remaining`);
 
   // Cleanup
   gl.deleteTexture(texture);
