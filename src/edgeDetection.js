@@ -236,7 +236,7 @@ export function calculateEdgeMap(imageData, options = {}) {
   // edgeSharpness 0.5 -> threshold 0.10 (keep top 90% - moderate)
   // edgeSharpness 1.0 -> threshold 0.20 (keep top 80% - sharper, fewer edges)
   if (threshold === null) {
-    threshold = 0.02 + edgeSharpness * 0.18;
+    threshold = 0.1 + edgeSharpness * 0.5;
   }
 
   const { data, width, height } = imageData;
