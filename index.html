@@ -381,6 +381,12 @@
                         <input type="number" id="edgeSharpnessNumber" min="0" max="1" step="0.1" value="0.8">
                     </div>
 
+                    <div class="control-group" id="numPassesGroup" style="display: none;">
+                        <label for="numPasses">Optimization Passes: <span id="numPassesValue">3</span></label>
+                        <input type="range" id="numPasses" min="1" max="10" value="3">
+                        <input type="number" id="numPassesNumber" min="1" max="10" value="3">
+                    </div>
+
                     <div class="control-group" id="showStepsGroup" style="display: none;">
                         <label>
                             <input type="checkbox" id="showAlgorithmSteps">
@@ -442,6 +448,10 @@
             edgeSharpnessSlider: document.getElementById('edgeSharpness'),
             edgeSharpnessNumber: document.getElementById('edgeSharpnessNumber'),
             edgeSharpnessValue: document.getElementById('edgeSharpnessValue'),
+            numPassesGroup: document.getElementById('numPassesGroup'),
+            numPassesSlider: document.getElementById('numPasses'),
+            numPassesNumber: document.getElementById('numPassesNumber'),
+            numPassesValue: document.getElementById('numPassesValue'),
             showStepsGroup: document.getElementById('showStepsGroup'),
             showAlgorithmSteps: document.getElementById('showAlgorithmSteps'),
             stepNavigation: document.getElementById('stepNavigation'),
@@ -495,6 +505,7 @@
 
         syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
+        syncControl(elements.numPassesSlider, elements.numPassesNumber, elements.numPassesValue, 1, 10, 3);
 
         // Edge sharpness uses float values
         function syncFloatControl(slider, number, valueDisplay, min, max, defaultVal) {
@@ -524,6 +535,7 @@
         function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
             elements.edgeSharpnessGroup.style.display = isEnabled ? 'flex' : 'none';
+            elements.numPassesGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.showStepsGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
@@ -698,13 +710,14 @@
                 if (useEdgeAware) {
                     const contrast = parseFloat(elements.contrastSlider.value);
                     const edgeSharpness = parseFloat(elements.edgeSharpnessSlider.value);
+                    const numPasses = parseInt(elements.numPassesSlider.value);
                     const showSteps = elements.showAlgorithmSteps.checked;
                     elements.gpuStatus.textContent = 'Processing...';
 
                     const result = await pixelateImageEdgeAware(currentImage, pixelSize, {
                         returnCanvas: true,
                         searchSteps: 9,
-                        numIterations: 3,
+                        numIterations: numPasses,
                         colorLimit: colorLimit,
                         contrast: contrast,
                         edgeSharpness: edgeSharpness,
