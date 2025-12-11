@@ -412,6 +412,25 @@
                         <input type="range" id="rotationAngle" min="0" max="360" value="0">
                         <input type="number" id="rotationAngleNumber" min="0" max="360" value="0">
                     </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="useScaling">
+                            Apply Scaling
+                        </label>
+                    </div>
+
+                    <div class="control-group" id="scalingGroup" style="display: none;">
+                        <label for="scaleX">Scale X: <span id="scaleXValue">1.0</span></label>
+                        <input type="range" id="scaleX" min="0.1" max="3" step="0.1" value="1.0">
+                        <input type="number" id="scaleXNumber" min="0.1" max="3" step="0.1" value="1.0">
+                    </div>
+
+                    <div class="control-group" id="scalingGroupY" style="display: none;">
+                        <label for="scaleY">Scale Y: <span id="scaleYValue">1.0</span></label>
+                        <input type="range" id="scaleY" min="0.1" max="3" step="0.1" value="1.0">
+                        <input type="number" id="scaleYNumber" min="0.1" max="3" step="0.1" value="1.0">
+                    </div>
                 </div>
             </div>
         </div>
@@ -429,7 +448,7 @@
 
     <script type="module">
         import { pixelateImage, pixelateImageEdgeAware, loadImage } from './src/pixelate.js';
-        import { applyProjection, rotationMatrix } from './src/projection.js';
+        import { applyProjection, rotationMatrix, scaleMatrix } from './src/projection.js';
 
         const elements = {
             imageInput: document.getElementById('imageInput'),
@@ -468,6 +487,15 @@
             rotationAngleSlider: document.getElementById('rotationAngle'),
             rotationAngleNumber: document.getElementById('rotationAngleNumber'),
             rotationAngleValue: document.getElementById('rotationAngleValue'),
+            useScaling: document.getElementById('useScaling'),
+            scalingGroup: document.getElementById('scalingGroup'),
+            scalingGroupY: document.getElementById('scalingGroupY'),
+            scaleXSlider: document.getElementById('scaleX'),
+            scaleXNumber: document.getElementById('scaleXNumber'),
+            scaleXValue: document.getElementById('scaleXValue'),
+            scaleYSlider: document.getElementById('scaleY'),
+            scaleYNumber: document.getElementById('scaleYNumber'),
+            scaleYValue: document.getElementById('scaleYValue'),
             pixelateBtn: document.getElementById('pixelateBtn'),
             mainCanvas: document.getElementById('mainCanvas'),
             canvasTitle: document.getElementById('canvasTitle')
@@ -530,6 +558,8 @@
         syncFloatControl(elements.edgeSharpnessSlider, elements.edgeSharpnessNumber, elements.edgeSharpnessValue, 0, 1, 0.8);
         syncFloatControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
         syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
+        syncFloatControl(elements.scaleXSlider, elements.scaleXNumber, elements.scaleXValue, 0.1, 3, 1.0);
+        syncFloatControl(elements.scaleYSlider, elements.scaleYNumber, elements.scaleYValue, 0.1, 3, 1.0);
 
         // Function to update visibility of edge-aware dependent controls
         function updateEdgeAwareControls() {
@@ -557,19 +587,41 @@
             elements.rotationGroup.style.display = isEnabled ? 'flex' : 'none';
         }
 
+        // Function to update visibility of scaling controls
+        function updateScalingControls() {
+            const isEnabled = elements.useScaling.checked;
+            elements.scalingGroup.style.display = isEnabled ? 'flex' : 'none';
+            elements.scalingGroupY.style.display = isEnabled ? 'flex' : 'none';
+        }
+
         // Apply projection to a canvas if enabled
         function applyProjectionIfEnabled(canvas) {
-            if (elements.useProjection.checked) {
-                const angle = (parseFloat(elements.rotationAngleSlider.value) * Math.PI) / 180;
-                const centerX = canvas.width / 2;
-                const centerY = canvas.height / 2;
-                const transform = rotationMatrix(angle, centerX, centerY);
-                return applyProjection(canvas, transform, {
+            let result = canvas;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+
+            // Apply scaling first if enabled
+            if (elements.useScaling.checked) {
+                const scaleX = parseFloat(elements.scaleXSlider.value);
+                const scaleY = parseFloat(elements.scaleYSlider.value);
+                const scaleTransform = scaleMatrix(scaleX, scaleY, centerX, centerY);
+                result = applyProjection(result, scaleTransform, {
                     returnCanvas: true,
                     interpolation: 'nearest'
                 });
             }
-            return canvas;
+
+            // Apply rotation if enabled
+            if (elements.useProjection.checked) {
+                const angle = (parseFloat(elements.rotationAngleSlider.value) * Math.PI) / 180;
+                const rotationTransform = rotationMatrix(angle, centerX, centerY);
+                result = applyProjection(result, rotationTransform, {
+                    returnCanvas: true,
+                    interpolation: 'nearest'
+                });
+            }
+
+            return result;
         }
 
         // Step navigation functions
@@ -640,6 +692,7 @@
         updateColorLimitControls();
         updateEdgeAwareControls();
         updateRotationControls();
+        updateScalingControls();
 
         // Show/hide color limit controls
         elements.useColorLimit.addEventListener('change', updateColorLimitControls);
@@ -649,6 +702,9 @@
 
         // Show/hide rotation controls
         elements.useProjection.addEventListener('change', updateRotationControls);
+
+        // Show/hide scaling controls
+        elements.useScaling.addEventListener('change', updateScalingControls);
 
         // Handle image upload
         elements.imageInput.addEventListener('change', async (e) => {
@@ -809,7 +865,7 @@
             }
         });
 
-        // Re-apply projection when rotation angle changes
+        // Re-apply projection when transform settings change
         function updateProjection() {
             if (!lastPixelatedResult && !stepsData.intermediates.length) return;
 
@@ -828,6 +884,11 @@
         elements.rotationAngleSlider.addEventListener('input', updateProjection);
         elements.rotationAngleNumber.addEventListener('input', updateProjection);
         elements.useProjection.addEventListener('change', updateProjection);
+        elements.scaleXSlider.addEventListener('input', updateProjection);
+        elements.scaleXNumber.addEventListener('input', updateProjection);
+        elements.scaleYSlider.addEventListener('input', updateProjection);
+        elements.scaleYNumber.addEventListener('input', updateProjection);
+        elements.useScaling.addEventListener('change', updateProjection);
     </script>
 </body>
 </html>
