@@ -35,19 +35,56 @@
         }
 
         .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
             margin-bottom: 30px;
-            padding: 20px;
+        }
+
+        .control-section {
             background: #f8f9fa;
             border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            transition: box-shadow 0.2s ease;
+        }
+
+        .control-section:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .control-section-title {
+            font-size: 0.95em;
+            font-weight: 700;
+            color: #495057;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .control-section-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
         }
 
         .control-group {
             display: flex;
             flex-direction: column;
             gap: 8px;
+            min-height: 60px;
+            transition: opacity 0.2s ease;
+        }
+
+        .control-group[style*="display: none"] {
+            min-height: 0;
+            opacity: 0;
+        }
+
+        .control-group.full-width {
+            grid-column: 1 / -1;
         }
 
         label {
@@ -56,26 +93,89 @@
             font-size: 0.9em;
         }
 
+        input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+        }
+
+        label:has(input[type="checkbox"]) {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
         input[type="range"] {
             width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #5568d3;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            transition: background 0.2s;
+        }
+
+        input[type="range"]::-moz-range-thumb:hover {
+            background: #5568d3;
         }
 
         input[type="number"] {
             width: 80px;
-            padding: 6px;
+            padding: 6px 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
         }
 
         input[type="file"] {
-            padding: 8px;
+            padding: 10px;
             border: 2px dashed #667eea;
             border-radius: 4px;
             cursor: pointer;
+            background: white;
+            transition: all 0.2s;
+        }
+
+        input[type="file"]:hover {
+            border-color: #5568d3;
+            background: #f8f9ff;
         }
 
         button {
-            padding: 12px 24px;
+            padding: 14px 28px;
             background: #667eea;
             color: white;
             border: none;
@@ -83,16 +183,26 @@
             font-size: 1em;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background: #5568d3;
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+            transform: translateY(-1px);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
         }
 
         button:disabled {
             background: #ccc;
             cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
         }
 
         .canvas-container {
@@ -197,61 +307,103 @@
         <h1>🎨 Pixel Mosaic</h1>
 
         <div class="controls">
-            <div class="control-group">
-                <label for="imageInput">Upload Image</label>
-                <input type="file" id="imageInput" accept="image/*">
-            </div>
-
-            <div class="control-group">
-                <label for="pixelSize">Pixel Size: <span id="pixelSizeValue">3</span></label>
-                <input type="range" id="pixelSize" min="2" max="128" value="3">
-                <input type="number" id="pixelSizeNumber" min="2" max="128" value="3">
-            </div>
-
-            <div class="control-group">
-                <label for="colorLimit">Color Limit: <span id="colorLimitValue">32</span></label>
-                <input type="range" id="colorLimit" min="2" max="256" value="32">
-                <input type="number" id="colorLimitNumber" min="2" max="256" value="32">
-            </div>
-
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="useColorLimit" checked>
-                    Enable Color Limiting
-                </label>
-            </div>
-
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="useEdgeAware">
-                    Edge-Aware Pixelation
-                </label>
-                <div id="gpuIndicator" style="display: none; margin-top: 4px; font-size: 0.85em; color: #666;">
-                    <span id="gpuStatus">Checking GPU...</span>
+            <!-- Image Upload Section -->
+            <div class="control-section">
+                <div class="control-section-title">📤 Image Upload</div>
+                <div class="control-section-grid">
+                    <div class="control-group full-width">
+                        <label for="imageInput">Upload Image</label>
+                        <input type="file" id="imageInput" accept="image/*">
+                    </div>
                 </div>
             </div>
 
-            <div class="control-group" id="edgeSharpnessGroup" style="display: none;">
-                <label for="edgeSharpness">Edge Sharpness: <span id="edgeSharpnessValue">0.8</span></label>
-                <input type="range" id="edgeSharpness" min="0" max="1" step="0.1" value="0.8">
-                <input type="number" id="edgeSharpnessNumber" min="0" max="1" step="0.1" value="0.8">
+            <!-- Pixelation Settings Section -->
+            <div class="control-section">
+                <div class="control-section-title">🎨 Pixelation Settings</div>
+                <div class="control-section-grid">
+                    <div class="control-group">
+                        <label for="pixelSize">Pixel Size: <span id="pixelSizeValue">3</span></label>
+                        <input type="range" id="pixelSize" min="2" max="128" value="3">
+                        <input type="number" id="pixelSizeNumber" min="2" max="128" value="3">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="contrast">Contrast: <span id="contrastValue">1.0</span></label>
+                        <input type="range" id="contrast" min="0.5" max="2" step="0.1" value="1.0">
+                        <input type="number" id="contrastNumber" min="0.5" max="2" step="0.1" value="1.0">
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="useColorLimit" checked>
+                            Enable Color Limiting
+                        </label>
+                    </div>
+
+                    <div class="control-group" id="colorLimitGroup">
+                        <label for="colorLimit">Color Limit: <span id="colorLimitValue">32</span></label>
+                        <input type="range" id="colorLimit" min="2" max="256" value="32">
+                        <input type="number" id="colorLimitNumber" min="2" max="256" value="32">
+                    </div>
+                </div>
             </div>
 
-            <div class="control-group" id="showStepsGroup" style="display: none;">
-                <label>
-                    <input type="checkbox" id="showAlgorithmSteps">
-                    Show Algorithm Steps
-                </label>
+            <!-- Edge-Aware Settings Section -->
+            <div class="control-section">
+                <div class="control-section-title">🔍 Edge-Aware Processing</div>
+                <div class="control-section-grid">
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="useEdgeAware">
+                            Enable Edge-Aware Pixelation
+                        </label>
+                        <div id="gpuIndicator" style="display: none; margin-top: 6px; font-size: 0.85em; color: #666;">
+                            <span id="gpuStatus">Checking GPU...</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="edgeSharpnessGroup" style="display: none;">
+                        <label for="edgeSharpness">Edge Sharpness: <span id="edgeSharpnessValue">0.8</span></label>
+                        <input type="range" id="edgeSharpness" min="0" max="1" step="0.1" value="0.8">
+                        <input type="number" id="edgeSharpnessNumber" min="0" max="1" step="0.1" value="0.8">
+                    </div>
+
+                    <div class="control-group" id="showStepsGroup" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="showAlgorithmSteps">
+                            Show Algorithm Steps
+                        </label>
+                    </div>
+                </div>
             </div>
 
-            <div class="control-group" id="contrastGroup">
-                <label for="contrast">Contrast: <span id="contrastValue">1.0</span></label>
-                <input type="range" id="contrast" min="0.5" max="2" step="0.1" value="1.0">
-                <input type="number" id="contrastNumber" min="0.5" max="2" step="0.1" value="1.0">
+            <!-- Transformation Settings Section -->
+            <div class="control-section">
+                <div class="control-section-title">🔄 Transformations</div>
+                <div class="control-section-grid">
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="useProjection">
+                            Apply Rotation (Projection)
+                        </label>
+                    </div>
+
+                    <div class="control-group" id="rotationGroup" style="display: none;">
+                        <label for="rotationAngle">Rotation Angle: <span id="rotationAngleValue">0</span>°</label>
+                        <input type="range" id="rotationAngle" min="0" max="360" value="0">
+                        <input type="number" id="rotationAngleNumber" min="0" max="360" value="0">
+                    </div>
+                </div>
             </div>
 
-            <div class="control-group">
-                <button id="pixelateBtn" disabled>Pixelate Image</button>
+            <!-- Action Section -->
+            <div class="control-section">
+                <div class="control-section-grid">
+                    <div class="control-group full-width">
+                        <button id="pixelateBtn" disabled>Pixelate Image</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -283,6 +435,7 @@
 
     <script type="module">
         import { pixelateImage, pixelateImageEdgeAware, loadImage } from './src/pixelate.js';
+        import { applyProjection, rotationMatrix } from './src/projection.js';
 
         const elements = {
             imageInput: document.getElementById('imageInput'),
@@ -292,6 +445,7 @@
             colorLimitSlider: document.getElementById('colorLimit'),
             colorLimitNumber: document.getElementById('colorLimitNumber'),
             colorLimitValue: document.getElementById('colorLimitValue'),
+            colorLimitGroup: document.getElementById('colorLimitGroup'),
             useColorLimit: document.getElementById('useColorLimit'),
             useEdgeAware: document.getElementById('useEdgeAware'),
             gpuIndicator: document.getElementById('gpuIndicator'),
@@ -311,6 +465,11 @@
             contrastSlider: document.getElementById('contrast'),
             contrastNumber: document.getElementById('contrastNumber'),
             contrastValue: document.getElementById('contrastValue'),
+            useProjection: document.getElementById('useProjection'),
+            rotationGroup: document.getElementById('rotationGroup'),
+            rotationAngleSlider: document.getElementById('rotationAngle'),
+            rotationAngleNumber: document.getElementById('rotationAngleNumber'),
+            rotationAngleValue: document.getElementById('rotationAngleValue'),
             pixelateBtn: document.getElementById('pixelateBtn'),
             mainCanvas: document.getElementById('mainCanvas'),
             canvasTitle: document.getElementById('canvasTitle')
@@ -324,6 +483,7 @@
 
         const mainCtx = elements.mainCanvas.getContext('2d');
         let currentImage = null;
+        let lastPixelatedResult = null; // Store original pixelated result (before projection)
 
         // Sync slider and number input
         function syncControl(slider, number, valueDisplay, min, max, defaultVal) {
@@ -370,18 +530,46 @@
 
         syncFloatControl(elements.edgeSharpnessSlider, elements.edgeSharpnessNumber, elements.edgeSharpnessValue, 0, 1, 0.8);
         syncFloatControl(elements.contrastSlider, elements.contrastNumber, elements.contrastValue, 0.5, 2, 1.0);
+        syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
 
         // Function to update visibility of edge-aware dependent controls
         function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
-            elements.edgeSharpnessGroup.style.display = isEnabled ? 'block' : 'none';
-            elements.showStepsGroup.style.display = isEnabled ? 'block' : 'none';
+            elements.edgeSharpnessGroup.style.display = isEnabled ? 'flex' : 'none';
+            elements.showStepsGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
                 elements.gpuStatus.textContent = '';
                 elements.stepNavigation.classList.remove('active');
                 stepsData.intermediates = [];
             }
+        }
+
+        // Function to update visibility of color limit controls
+        function updateColorLimitControls() {
+            const isEnabled = elements.useColorLimit.checked;
+            elements.colorLimitGroup.style.display = isEnabled ? 'flex' : 'none';
+        }
+
+        // Function to update visibility of rotation controls
+        function updateRotationControls() {
+            const isEnabled = elements.useProjection.checked;
+            elements.rotationGroup.style.display = isEnabled ? 'flex' : 'none';
+        }
+
+        // Apply projection to a canvas if enabled
+        function applyProjectionIfEnabled(canvas) {
+            if (elements.useProjection.checked) {
+                const angle = (parseFloat(elements.rotationAngleSlider.value) * Math.PI) / 180;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const transform = rotationMatrix(angle, centerX, centerY);
+                return applyProjection(canvas, transform, {
+                    returnCanvas: true,
+                    interpolation: 'nearest'
+                });
+            }
+            return canvas;
         }
 
         // Step navigation functions
@@ -391,10 +579,18 @@
             stepsData.currentStep = Math.max(0, Math.min(index, stepsData.intermediates.length - 1));
             const step = stepsData.intermediates[stepsData.currentStep];
 
+            // Apply projection only to final result
+            let displayCanvas = step.canvas;
+            if (step.name === 'Final Result') {
+                // Use original canvas if stored, otherwise use current
+                const sourceCanvas = step.originalCanvas || step.canvas;
+                displayCanvas = applyProjectionIfEnabled(sourceCanvas);
+            }
+
             // Update canvas
-            elements.mainCanvas.width = step.canvas.width;
-            elements.mainCanvas.height = step.canvas.height;
-            mainCtx.drawImage(step.canvas, 0, 0);
+            elements.mainCanvas.width = displayCanvas.width;
+            elements.mainCanvas.height = displayCanvas.height;
+            mainCtx.drawImage(displayCanvas, 0, 0);
 
             // Update labels
             elements.canvasTitle.textContent = step.name;
@@ -441,10 +637,18 @@
         });
 
         // Initialize visibility on page load
+        updateColorLimitControls();
         updateEdgeAwareControls();
+        updateRotationControls();
+
+        // Show/hide color limit controls
+        elements.useColorLimit.addEventListener('change', updateColorLimitControls);
 
         // Show/hide edge-aware controls
         elements.useEdgeAware.addEventListener('change', updateEdgeAwareControls);
+
+        // Show/hide rotation controls
+        elements.useProjection.addEventListener('change', updateRotationControls);
 
         // Handle image upload
         elements.imageInput.addEventListener('change', async (e) => {
@@ -530,6 +734,13 @@
 
                     if (showSteps && result.intermediates) {
                         pixelated = result.canvas;
+                        // Store original canvas for final result step
+                        if (result.intermediates.length > 0) {
+                            const finalStep = result.intermediates[result.intermediates.length - 1];
+                            if (finalStep.name === 'Final Result') {
+                                finalStep.originalCanvas = finalStep.canvas; // Store original before projection
+                            }
+                        }
                         initializeSteps(result.intermediates);
 
                         if (result.usingGPU) {
@@ -541,16 +752,21 @@
                         }
                     } else {
                         pixelated = result;
+                        // Store original before projection
+                        lastPixelatedResult = pixelated;
                         elements.stepNavigation.classList.remove('active');
                         stepsData.intermediates = [];
 
-                        elements.mainCanvas.width = pixelated.width;
-                        elements.mainCanvas.height = pixelated.height;
-                        mainCtx.drawImage(pixelated, 0, 0);
+                        // Apply projection if enabled
+                        const displayCanvas = applyProjectionIfEnabled(pixelated);
+
+                        elements.mainCanvas.width = displayCanvas.width;
+                        elements.mainCanvas.height = displayCanvas.height;
+                        mainCtx.drawImage(displayCanvas, 0, 0);
                         elements.canvasTitle.textContent = 'Pixelated Image';
 
-                        if (pixelated._usingGPU !== undefined) {
-                            if (pixelated._usingGPU) {
+                        if (result._usingGPU !== undefined) {
+                            if (result._usingGPU) {
                                 elements.gpuStatus.textContent = '✓ Using GPU acceleration';
                                 elements.gpuStatus.style.color = '#4caf50';
                             } else {
@@ -571,9 +787,15 @@
                     elements.stepNavigation.classList.remove('active');
                     stepsData.intermediates = [];
 
-                    elements.mainCanvas.width = pixelated.width;
-                    elements.mainCanvas.height = pixelated.height;
-                    mainCtx.drawImage(pixelated, 0, 0);
+                    // Store original before projection
+                    lastPixelatedResult = pixelated;
+
+                    // Apply projection if enabled
+                    const displayCanvas = applyProjectionIfEnabled(pixelated);
+
+                    elements.mainCanvas.width = displayCanvas.width;
+                    elements.mainCanvas.height = displayCanvas.height;
+                    mainCtx.drawImage(displayCanvas, 0, 0);
                     elements.canvasTitle.textContent = 'Pixelated Image';
                 }
 
@@ -585,6 +807,26 @@
                 elements.pixelateBtn.textContent = 'Pixelate Image';
             }
         });
+
+        // Re-apply projection when rotation angle changes
+        function updateProjection() {
+            if (!lastPixelatedResult && !stepsData.intermediates.length) return;
+
+            if (stepsData.intermediates.length > 0) {
+                // Update current step if showing steps
+                showStep(stepsData.currentStep);
+            } else if (lastPixelatedResult) {
+                // Update display if not showing steps
+                const displayCanvas = applyProjectionIfEnabled(lastPixelatedResult);
+                elements.mainCanvas.width = displayCanvas.width;
+                elements.mainCanvas.height = displayCanvas.height;
+                mainCtx.drawImage(displayCanvas, 0, 0);
+            }
+        }
+
+        elements.rotationAngleSlider.addEventListener('input', updateProjection);
+        elements.rotationAngleNumber.addEventListener('input', updateProjection);
+        elements.useProjection.addEventListener('change', updateProjection);
     </script>
 </body>
 </html>
