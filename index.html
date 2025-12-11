@@ -129,97 +129,30 @@
             color: #1565c0;
         }
 
-        /* Algorithm Steps Visualization */
-        .steps-container {
-            margin-top: 30px;
-            padding: 20px;
-            background: #1a1a2e;
-            border-radius: 12px;
+        /* Step navigation in canvas wrapper */
+        .step-navigation {
             display: none;
-        }
-
-        .steps-container.active {
-            display: block;
-        }
-
-        .steps-container h2 {
-            color: #fff;
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 1.5em;
-        }
-
-        .steps-preview {
-            position: relative;
-            max-width: 800px;
-            margin: 0 auto;
-            text-align: center;
-        }
-
-        .steps-preview canvas {
-            max-width: 100%;
-            height: auto;
-            border: 3px solid #667eea;
-            border-radius: 8px;
-        }
-
-        .step-label {
-            color: #fff;
-            font-size: 1.3em;
-            font-weight: 600;
-            margin-top: 15px;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 6px;
-            display: inline-block;
-        }
-
-        .step-counter {
-            color: #aaa;
-            font-size: 0.9em;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
             margin-top: 10px;
         }
 
-        .steps-controls {
+        .step-navigation.active {
             display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin-top: 20px;
         }
 
-        .steps-controls button {
-            padding: 10px 20px;
+        .step-navigation button {
+            padding: 8px 16px;
             font-size: 0.9em;
-            min-width: 100px;
+            min-width: 80px;
         }
 
-        .steps-controls button.active {
-            background: #4caf50;
-        }
-
-        .steps-progress {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-            margin-top: 15px;
-        }
-
-        .steps-progress .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #444;
-            transition: background 0.3s, transform 0.3s;
-            cursor: pointer;
-        }
-
-        .steps-progress .dot.active {
-            background: #667eea;
-            transform: scale(1.3);
-        }
-
-        .steps-progress .dot:hover {
-            background: #5568d3;
+        .step-label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.95em;
+            margin: 0 10px;
         }
 
         .github-link {
@@ -345,25 +278,15 @@
             <div class="canvas-wrapper">
                 <h2>Pixelated Image</h2>
                 <canvas id="pixelatedCanvas"></canvas>
+                <div class="step-navigation" id="stepNavigation">
+                    <button id="stepPrev">← Previous</button>
+                    <span class="step-label" id="stepLabel">Original</span>
+                    <button id="stepNext">Next →</button>
+                </div>
             </div>
             <div class="canvas-wrapper">
                 <h2>With Projection</h2>
                 <canvas id="projectedCanvas"></canvas>
-            </div>
-        </div>
-
-        <div class="steps-container" id="stepsContainer">
-            <h2>Algorithm Steps</h2>
-            <div class="steps-preview">
-                <canvas id="stepsCanvas"></canvas>
-                <div class="step-label" id="stepLabel">Original</div>
-                <div class="step-counter" id="stepCounter">Step 1 of 8</div>
-            </div>
-            <div class="steps-progress" id="stepsProgress"></div>
-            <div class="steps-controls">
-                <button id="stepPrev">← Previous</button>
-                <button id="stepPlayPause" class="active">⏸ Pause</button>
-                <button id="stepNext">Next →</button>
             </div>
         </div>
 
@@ -404,13 +327,9 @@
             edgeSharpnessValue: document.getElementById('edgeSharpnessValue'),
             showStepsGroup: document.getElementById('showStepsGroup'),
             showAlgorithmSteps: document.getElementById('showAlgorithmSteps'),
-            stepsContainer: document.getElementById('stepsContainer'),
-            stepsCanvas: document.getElementById('stepsCanvas'),
+            stepNavigation: document.getElementById('stepNavigation'),
             stepLabel: document.getElementById('stepLabel'),
-            stepCounter: document.getElementById('stepCounter'),
-            stepsProgress: document.getElementById('stepsProgress'),
             stepPrev: document.getElementById('stepPrev'),
-            stepPlayPause: document.getElementById('stepPlayPause'),
             stepNext: document.getElementById('stepNext'),
             contrastGroup: document.getElementById('contrastGroup'),
             contrastSlider: document.getElementById('contrast'),
@@ -426,13 +345,10 @@
             projectedCanvas: document.getElementById('projectedCanvas')
         };
 
-        // Algorithm steps slideshow state
+        // Algorithm steps state
         let stepsData = {
             intermediates: [],
-            currentStep: 0,
-            isPlaying: true,
-            intervalId: null,
-            stepDelay: 1500 // 1.5 seconds per step
+            currentStep: 0
         };
 
         const originalCtx = elements.originalCanvas.getContext('2d');
@@ -498,106 +414,53 @@
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
                 elements.gpuStatus.textContent = '';
-                elements.stepsContainer.classList.remove('active');
-                stopStepsAnimation();
+                elements.stepNavigation.classList.remove('active');
+                stepsData.intermediates = [];
             }
         }
 
-        // Slideshow functions
+        // Step navigation functions
         function showStep(index) {
             if (!stepsData.intermediates.length) return;
 
             stepsData.currentStep = Math.max(0, Math.min(index, stepsData.intermediates.length - 1));
             const step = stepsData.intermediates[stepsData.currentStep];
 
-            // Update canvas
-            const stepsCtx = elements.stepsCanvas.getContext('2d');
-            elements.stepsCanvas.width = step.canvas.width;
-            elements.stepsCanvas.height = step.canvas.height;
-            stepsCtx.drawImage(step.canvas, 0, 0);
+            // Update pixelated canvas
+            elements.pixelatedCanvas.width = step.canvas.width;
+            elements.pixelatedCanvas.height = step.canvas.height;
+            pixelatedCtx.drawImage(step.canvas, 0, 0);
 
-            // Update label and counter
+            // Update label
             elements.stepLabel.textContent = step.name;
-            elements.stepCounter.textContent = `Step ${stepsData.currentStep + 1} of ${stepsData.intermediates.length}`;
-
-            // Update progress dots
-            const dots = elements.stepsProgress.querySelectorAll('.dot');
-            dots.forEach((dot, i) => {
-                dot.classList.toggle('active', i === stepsData.currentStep);
-            });
         }
 
         function nextStep() {
+            if (!stepsData.intermediates.length) return;
             const next = (stepsData.currentStep + 1) % stepsData.intermediates.length;
             showStep(next);
         }
 
         function prevStep() {
+            if (!stepsData.intermediates.length) return;
             const prev = (stepsData.currentStep - 1 + stepsData.intermediates.length) % stepsData.intermediates.length;
             showStep(prev);
-        }
-
-        function startStepsAnimation() {
-            if (stepsData.intervalId) return;
-            stepsData.isPlaying = true;
-            elements.stepPlayPause.textContent = '⏸ Pause';
-            elements.stepPlayPause.classList.add('active');
-            stepsData.intervalId = setInterval(nextStep, stepsData.stepDelay);
-        }
-
-        function stopStepsAnimation() {
-            if (stepsData.intervalId) {
-                clearInterval(stepsData.intervalId);
-                stepsData.intervalId = null;
-            }
-            stepsData.isPlaying = false;
-            elements.stepPlayPause.textContent = '▶ Play';
-            elements.stepPlayPause.classList.remove('active');
-        }
-
-        function toggleStepsAnimation() {
-            if (stepsData.isPlaying) {
-                stopStepsAnimation();
-            } else {
-                startStepsAnimation();
-            }
         }
 
         function initializeSteps(intermediates) {
             stepsData.intermediates = intermediates;
             stepsData.currentStep = 0;
 
-            // Create progress dots
-            elements.stepsProgress.innerHTML = '';
-            intermediates.forEach((_, i) => {
-                const dot = document.createElement('div');
-                dot.className = 'dot' + (i === 0 ? ' active' : '');
-                dot.addEventListener('click', () => {
-                    stopStepsAnimation();
-                    showStep(i);
-                });
-                elements.stepsProgress.appendChild(dot);
-            });
+            // Show navigation
+            elements.stepNavigation.classList.add('active');
 
             // Show first step
             showStep(0);
-
-            // Start animation
-            startStepsAnimation();
         }
 
         // Step control event listeners
-        elements.stepPrev.addEventListener('click', () => {
-            stopStepsAnimation();
-            prevStep();
-        });
-
-        elements.stepNext.addEventListener('click', () => {
-            stopStepsAnimation();
-            nextStep();
-        });
-
-        elements.stepPlayPause.addEventListener('click', toggleStepsAnimation);
+        elements.stepPrev.addEventListener('click', prevStep);
+        elements.stepNext.addEventListener('click', nextStep);
 
         // Initialize visibility on page load
         updateEdgeAwareControls();
@@ -693,8 +556,7 @@
                     if (showSteps && result.intermediates) {
                         pixelated = result.canvas;
 
-                        // Show steps container and initialize slideshow
-                        elements.stepsContainer.classList.add('active');
+                        // Initialize step navigation
                         initializeSteps(result.intermediates);
 
                         // Update GPU status
@@ -707,8 +569,13 @@
                         }
                     } else {
                         pixelated = result;
-                        elements.stepsContainer.classList.remove('active');
-                        stopStepsAnimation();
+                        elements.stepNavigation.classList.remove('active');
+                        stepsData.intermediates = [];
+
+                        // Display pixelated result
+                        elements.pixelatedCanvas.width = pixelated.width;
+                        elements.pixelatedCanvas.height = pixelated.height;
+                        pixelatedCtx.drawImage(pixelated, 0, 0);
 
                         // Check canvas metadata as fallback
                         if (pixelated._usingGPU !== undefined) {
@@ -731,11 +598,16 @@
                         colorLimit: colorLimit,
                         contrast: contrast
                     });
-                }
 
-                elements.pixelatedCanvas.width = pixelated.width;
-                elements.pixelatedCanvas.height = pixelated.height;
-                pixelatedCtx.drawImage(pixelated, 0, 0);
+                    // Hide step navigation for simple pixelation
+                    elements.stepNavigation.classList.remove('active');
+                    stepsData.intermediates = [];
+
+                    // Display pixelated result
+                    elements.pixelatedCanvas.width = pixelated.width;
+                    elements.pixelatedCanvas.height = pixelated.height;
+                    pixelatedCtx.drawImage(pixelated, 0, 0);
+                }
 
                 // Apply projection if enabled
                 if (elements.useProjection.checked) {
