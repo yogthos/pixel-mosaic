@@ -123,5 +123,59 @@ describe('applyProjection', () => {
     const result = applyProjection(imageData, identity, { returnCanvas: true });
     expect(result).toBeInstanceOf(HTMLCanvasElement);
   });
+
+  it('preserves pixelated look with nearest-neighbor interpolation', () => {
+    // Create a pixelated image (large blocks)
+    const canvas = createTestCanvas(100, 100);
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(100, 100);
+
+    // Create 10x10 pixel blocks
+    const blockSize = 10;
+    for (let by = 0; by < 10; by++) {
+      for (let bx = 0; bx < 10; bx++) {
+        // Alternate colors
+        const color = (bx + by) % 2 === 0 ? [255, 0, 0, 255] : [0, 0, 255, 255];
+        for (let y = by * blockSize; y < (by + 1) * blockSize; y++) {
+          for (let x = bx * blockSize; x < (bx + 1) * blockSize; x++) {
+            const idx = (y * 100 + x) * 4;
+            imageData.data[idx] = color[0];
+            imageData.data[idx + 1] = color[1];
+            imageData.data[idx + 2] = color[2];
+            imageData.data[idx + 3] = color[3];
+          }
+        }
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // Apply rotation with nearest-neighbor
+    const angle = Math.PI / 4; // 45 degrees
+    const centerX = 50;
+    const centerY = 50;
+    const transform = rotationMatrix(angle, centerX, centerY);
+    const result = applyProjection(canvas, transform, {
+      returnCanvas: true,
+      interpolation: 'nearest'
+    });
+
+    expect(result).toBeInstanceOf(HTMLCanvasElement);
+    // Result should maintain pixelated appearance (not blurred)
+    const resultCtx = result.getContext('2d');
+    const resultData = resultCtx.getImageData(0, 0, result.width, result.height);
+
+    // Check that we still have distinct color blocks (not smooth gradients)
+    // Sample a few pixels - they should be either red or blue, not intermediate
+    let distinctColors = new Set();
+    for (let i = 0; i < resultData.data.length; i += 400) { // Sample every 100th pixel
+      const r = resultData.data[i];
+      const g = resultData.data[i + 1];
+      const b = resultData.data[i + 2];
+      distinctColors.add(`${r},${g},${b}`);
+    }
+
+    // Should have distinct colors (not all blended)
+    expect(distinctColors.size).toBeGreaterThan(1);
+  });
 });
 

@@ -165,10 +165,12 @@ describe('Edge Detection', () => {
       }
 
       // Test with low sharpness (soft edges)
-      const edgeMapSoft = calculateEdgeMap(imageData, { edgeSharpness: 0.2 }); // threshold ~0.1
+      // edgeSharpness 0.2 -> threshold 0.02 + 0.2 * 0.18 = 0.056
+      const edgeMapSoft = calculateEdgeMap(imageData, { edgeSharpness: 0.2 });
 
       // Test with high sharpness (sharp edges)
-      const edgeMapSharp = calculateEdgeMap(imageData, { edgeSharpness: 0.9 }); // threshold ~0.45
+      // edgeSharpness 0.9 -> threshold 0.02 + 0.9 * 0.18 = 0.182
+      const edgeMapSharp = calculateEdgeMap(imageData, { edgeSharpness: 0.9 });
 
       // Count non-zero edge pixels - sharper should have fewer
       let softNonZero = 0;
@@ -180,6 +182,46 @@ describe('Edge Detection', () => {
 
       // Sharper edges should have fewer non-zero pixels
       expect(sharpNonZero).toBeLessThanOrEqual(softNonZero);
+    });
+
+    it('should detect edges with new threshold range (0.02-0.2)', () => {
+      const width = 20;
+      const height = 20;
+      const imageData = new ImageData(width, height);
+
+      // Create a clear vertical line (strong edges)
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          if (x >= 8 && x <= 12) {
+            // White line
+            imageData.data[idx] = 255;
+            imageData.data[idx + 1] = 255;
+            imageData.data[idx + 2] = 255;
+          } else {
+            // Black background
+            imageData.data[idx] = 0;
+            imageData.data[idx + 1] = 0;
+            imageData.data[idx + 2] = 0;
+          }
+          imageData.data[idx + 3] = 255;
+        }
+      }
+
+      // Test with default edgeSharpness (0.8) -> threshold ~0.164
+      const edgeMap = calculateEdgeMap(imageData, { edgeSharpness: 0.8 });
+
+      // Should detect edges (not all zeros)
+      let edgeCount = 0;
+      for (let i = 0; i < edgeMap.length; i++) {
+        if (edgeMap[i] > 0) edgeCount++;
+      }
+
+      // Should have detected edges
+      expect(edgeCount).toBeGreaterThan(0);
+      // Should have reasonable number of edges (not too few, not too many)
+      expect(edgeCount).toBeGreaterThan(10); // At least some edges
+      expect(edgeCount).toBeLessThan(width * height * 0.5); // Not more than 50% of pixels
     });
   });
 

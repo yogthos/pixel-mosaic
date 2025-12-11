@@ -365,6 +365,40 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
 }
 
 /**
+ * Evaluates edge density in a small region around a point.
+ * Higher density = more edges nearby = better position for a corner.
+ *
+ * @param {Float32Array} edgeMap - Edge map
+ * @param {number} width - Image width
+ * @param {number} height - Image height
+ * @param {number} x - X coordinate
+ * @param {number} y - Y coordinate
+ * @param {number} radius - Search radius in pixels
+ * @returns {number} Edge density score (0-1)
+ */
+function evaluateEdgeDensity(edgeMap, width, height, x, y, radius = 3) {
+  let edgeCount = 0;
+  let totalSamples = 0;
+
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const px = Math.floor(x + dx);
+      const py = Math.floor(y + dy);
+
+      if (px >= 0 && px < width && py >= 0 && py < height) {
+        totalSamples++;
+        const idx = py * width + px;
+        if (edgeMap[idx] > 0) {
+          edgeCount++;
+        }
+      }
+    }
+  }
+
+  return totalSamples > 0 ? edgeCount / totalSamples : 0;
+}
+
+/**
  * Optimizes grid corners to align cell sides with edges
  *
  * @param {Object} grid - Grid object from createInitialGrid
@@ -386,6 +420,12 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
     edgeSharpness = 0.8
   } = options;
 
+  // Validate edge map
+  if (!edgeMap || edgeMap.length !== width * height) {
+    console.warn('Invalid edge map for grid optimization');
+    return grid;
+  }
+
   const { corners, cells } = grid;
   const rows = corners.length;
   const cols = corners[0].length;
@@ -406,8 +446,7 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
         let bestX = corner.x;
         let bestY = corner.y;
 
-        // Evaluate current alignment by checking all edges connected to this corner
-        let bestAlignment = 0;
+        // Find all edges connected to this corner
         const connectedEdges = [];
 
         // Find all edges connected to this corner
@@ -424,7 +463,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
           connectedEdges.push(corners[row][col + 1]); // Right
         }
 
-        // Calculate current alignment score
+        // Calculate current alignment score (edge alignment + edge density)
+        let bestAlignment = evaluateEdgeDensity(edgeMap, width, height, corner.x, corner.y, Math.ceil(stepSize));
         for (const neighbor of connectedEdges) {
           bestAlignment += evaluateEdgeAlignment(
             edgeMap, width, height,
@@ -440,6 +480,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
 
         for (let dy = -halfGrid; dy <= halfGrid; dy++) {
           for (let dx = -halfGrid; dx <= halfGrid; dx++) {
+            if (dx === 0 && dy === 0) continue; // Skip current position
+
             const testX = corner.x + dx * stepSize;
             const testY = corner.y + dy * stepSize;
 
@@ -449,7 +491,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
             }
 
             // Evaluate alignment of all edges connected to this test position
-            let alignment = 0;
+            // Include edge density to attract corners toward edges
+            let alignment = evaluateEdgeDensity(edgeMap, width, height, testX, testY, Math.ceil(stepSize));
             for (const neighbor of connectedEdges) {
               alignment += evaluateEdgeAlignment(
                 edgeMap, width, height,
@@ -473,6 +516,7 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
         const damping = baseDamping + dampingRange * (1 - iterationProgress);
         const deltaX = bestX - corner.x;
         const deltaY = bestY - corner.y;
+
         corner.x += deltaX * damping;
         corner.y += deltaY * damping;
       }
