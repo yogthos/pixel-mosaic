@@ -14,9 +14,11 @@ import {
   imageDataToCanvas,
   cloneGridCorners
 } from './visualization.js';
+import { pipe } from './pipeline.js';
 
 /**
  * Pixelates an image by scaling it down and then back up with nearest-neighbor interpolation.
+ * Uses a functional pipeline internally for composability.
  *
  * @param {HTMLImageElement|HTMLCanvasElement|ImageData} image - Source image to pixelate
  * @param {number} pixelSize - Size of each pixel block (e.g., 3 = 3x3 pixel blocks)
@@ -33,79 +35,38 @@ export function pixelateImage(image, pixelSize, options = {}) {
     contrast = 1.0
   } = options;
 
-  // Get image dimensions
-  let sourceWidth, sourceHeight;
-  if (image instanceof ImageData) {
-    sourceWidth = image.width;
-    sourceHeight = image.height;
-  } else if (image instanceof HTMLCanvasElement) {
-    sourceWidth = image.width;
-    sourceHeight = image.height;
-  } else if (image instanceof HTMLImageElement) {
-    sourceWidth = image.naturalWidth || image.width;
-    sourceHeight = image.naturalHeight || image.height;
-  } else {
-    throw new Error('Unsupported image type. Use Image, Canvas, or ImageData.');
-  }
+  // Convert to ImageData if needed
+  let imageData = image instanceof ImageData ? image : convertToImageData(image);
 
-  // Calculate scaled dimensions
-  const scaledWidth = Math.max(1, Math.floor(sourceWidth / pixelSize));
-  const scaledHeight = Math.max(1, Math.floor(sourceHeight / pixelSize));
-
-  // Create temporary canvas for downscaling
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = scaledWidth;
-  tempCanvas.height = scaledHeight;
-  const tempCtx = tempCanvas.getContext('2d');
-
-  // Disable image smoothing for pixelated effect
-  tempCtx.imageSmoothingEnabled = false;
-
-  // Draw source image scaled down
-  if (image instanceof ImageData) {
-    // Create a temporary canvas to draw ImageData
-    const sourceCanvas = document.createElement('canvas');
-    sourceCanvas.width = sourceWidth;
-    sourceCanvas.height = sourceHeight;
-    const sourceCtx = sourceCanvas.getContext('2d');
-    sourceCtx.putImageData(image, 0, 0);
-    tempCtx.drawImage(sourceCanvas, 0, 0, scaledWidth, scaledHeight);
-  } else {
-    tempCtx.drawImage(image, 0, 0, scaledWidth, scaledHeight);
-  }
+  // Downscale the image
+  const downscaleContext = downscaleImageStep(image, pixelSize);
+  let scaledImageData = downscaleContext.scaledImageData;
 
   // Apply color quantization if requested
-  let imageData = tempCtx.getImageData(0, 0, scaledWidth, scaledHeight);
   if (colorLimit && colorLimit > 0) {
-    imageData = quantizeColors(imageData, colorLimit);
+    scaledImageData = quantizeColorsStep(scaledImageData, colorLimit);
     // Put quantized imageData back onto tempCanvas so it's used when upscaling
-    tempCtx.putImageData(imageData, 0, 0);
+    const tempCtx = downscaleContext.scaledCanvas.getContext('2d');
+    tempCtx.putImageData(scaledImageData, 0, 0);
+    downscaleContext.scaledImageData = scaledImageData;
   }
 
-  // Create output canvas for upscaling
-  const outputCanvas = document.createElement('canvas');
-  outputCanvas.width = sourceWidth;
-  outputCanvas.height = sourceHeight;
-  const outputCtx = outputCanvas.getContext('2d');
-
-  // Disable smoothing for crisp pixel edges
-  outputCtx.imageSmoothingEnabled = false;
-
-  // Draw scaled (and optionally quantized) image back up to original size
-  outputCtx.drawImage(tempCanvas, 0, 0, sourceWidth, sourceHeight);
+  // Upscale the image
+  const outputCanvas = upscaleImageStep(downscaleContext);
 
   // Apply contrast adjustment if requested
   if (contrast !== 1.0) {
-    let finalImageData = outputCtx.getImageData(0, 0, sourceWidth, sourceHeight);
-    finalImageData = adjustContrast(finalImageData, contrast);
-    outputCtx.putImageData(finalImageData, 0, 0);
+    let finalImageData = outputCanvas.getContext('2d').getImageData(0, 0, outputCanvas.width, outputCanvas.height);
+    finalImageData = adjustContrastStep(finalImageData, contrast);
+    outputCanvas.getContext('2d').putImageData(finalImageData, 0, 0);
   }
 
-  if (returnCanvas) {
-    return outputCanvas;
-  } else {
-    return outputCtx.getImageData(0, 0, sourceWidth, sourceHeight);
+  // Convert to ImageData if needed
+  if (!returnCanvas) {
+    return outputCanvas.getContext('2d').getImageData(0, 0, outputCanvas.width, outputCanvas.height);
   }
+
+  return outputCanvas;
 }
 
 /**
@@ -401,6 +362,322 @@ function adjustContrast(imageData, contrast) {
 }
 
 /**
+ * STEP FUNCTIONS - Independent transformation steps that can be composed into pipelines
+ */
+
+/**
+ * Converts various image types to ImageData.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {HTMLImageElement|HTMLCanvasElement|ImageData} image - Source image
+ * @returns {ImageData} ImageData representation of the image
+ */
+export function convertToImageData(image) {
+  if (image instanceof ImageData) {
+    return image;
+  }
+
+  const canvas = document.createElement('canvas');
+  if (image instanceof HTMLCanvasElement) {
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+  } else if (image instanceof HTMLImageElement) {
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+  } else {
+    throw new Error('Unsupported image type. Use Image, Canvas, or ImageData.');
+  }
+
+  return canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/**
+ * Calculates edge map from image data (WebGL or CPU fallback).
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Source image data
+ * @param {Object} options - Edge detection options
+ * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8)
+ * @param {Function} options.onProgress - Optional callback for progress updates
+ * @returns {Object} Object with edgeMap (Float32Array) and usingGPU (boolean)
+ */
+export async function calculateEdgeMapStep(imageData, options = {}) {
+  const { edgeSharpness = 0.8, onProgress = null } = options;
+  const { width, height } = imageData;
+
+  let edgeMap = null;
+  let usingGPU = false;
+
+  try {
+    edgeMap = calculateEdgeMapWebGL(imageData, { edgeSharpness });
+    usingGPU = edgeMap !== null;
+
+    if (edgeMap) {
+      // Validate WebGL edge map
+      if (edgeMap.length !== width * height) {
+        console.warn('WebGL edge map size mismatch, falling back to CPU');
+        edgeMap = null;
+        usingGPU = false;
+      } else {
+        // Quick check: count edges in a random sample across the whole image
+        let edgeCount = 0;
+        const sampleSize = Math.min(10000, edgeMap.length);
+        const step = Math.max(1, Math.floor(edgeMap.length / sampleSize));
+        for (let i = 0; i < edgeMap.length; i += step) {
+          if (edgeMap[i] > 0) {
+            edgeCount++;
+          }
+        }
+
+        // If WebGL edge map appears completely empty, try CPU
+        if (edgeCount === 0 && sampleSize > 100) {
+          console.warn('WebGL edge map has no edges in sample, trying CPU');
+          const cpuEdgeMap = calculateEdgeMap(imageData, { edgeSharpness });
+          let cpuEdgeCount = 0;
+          const cpuStep = Math.max(1, Math.floor(cpuEdgeMap.length / sampleSize));
+          for (let i = 0; i < cpuEdgeMap.length; i += cpuStep) {
+            if (cpuEdgeMap[i] > 0) {
+              cpuEdgeCount++;
+            }
+          }
+          // Use CPU if it finds edges
+          if (cpuEdgeCount > 0) {
+            edgeMap = cpuEdgeMap;
+            usingGPU = false;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('WebGL edge detection error:', error);
+    edgeMap = null;
+    usingGPU = false;
+  }
+
+  if (!edgeMap) {
+    // WebGL not available or failed, use CPU implementation
+    edgeMap = calculateEdgeMap(imageData, { edgeSharpness });
+  }
+
+  if (onProgress) {
+    onProgress({ usingGPU });
+  }
+
+  return { edgeMap, usingGPU };
+}
+
+/**
+ * Creates an initial uniform grid for edge-aware pixelation.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Source image data
+ * @param {number} pixelizationFactor - Approximate size of each grid cell
+ * @returns {Object} Grid object with corners and cells
+ */
+export function createGridStep(imageData, pixelizationFactor) {
+  return createInitialGrid(imageData.width, imageData.height, pixelizationFactor);
+}
+
+/**
+ * Optimizes grid corners to align with image edges.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {Object} context - Context object containing grid, edgeMap, and imageData
+ * @param {Object} options - Optimization options
+ * @param {number} options.searchSteps - Number of search steps per iteration
+ * @param {number} options.numIterations - Number of optimization iterations
+ * @param {number} options.stepSize - Size of each movement step
+ * @param {number} options.edgeSharpness - Edge sharpness (0-1)
+ * @returns {Object} Optimized grid
+ */
+export function optimizeGridStep(context, options = {}) {
+  const { grid, edgeMap, imageData } = context;
+  const {
+    searchSteps = 9,
+    numIterations = 2,
+    stepSize = 1.0,
+    edgeSharpness = 0.8
+  } = options;
+
+  if (!grid || !edgeMap || !imageData) {
+    throw new Error('optimizeGridStep requires grid, edgeMap, and imageData in context');
+  }
+
+  const { width, height } = imageData;
+
+  // Use the provided stepSize directly (it's already calculated with sharpness scaling at call site)
+  // Scale search parameters based on edgeSharpness if not already done
+  const effectiveSearchSteps = Math.max(searchSteps, Math.floor(9 + edgeSharpness * 16));
+  const effectiveIterations = Math.max(numIterations, Math.floor(2 + edgeSharpness * 3));
+
+  return optimizeGridCorners(grid, edgeMap, width, height, {
+    searchSteps: effectiveSearchSteps,
+    numIterations: effectiveIterations,
+    stepSize: stepSize || 1.0,
+    edgeSharpness
+  });
+}
+
+/**
+ * Renders edge-aware pixels from image data and edge map.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Source image data
+ * @param {Float32Array} edgeMap - Edge strength map
+ * @param {number} pixelSize - Size of each pixel block
+ * @param {number} edgeSharpness - Edge sharpness (0-1), controls blend between average and median
+ * @returns {ImageData} Pixelated image data
+ */
+export function renderEdgeAwarePixelsStep(imageData, edgeMap, pixelSize, edgeSharpness) {
+  return renderEdgeAwarePixels(imageData, edgeMap, pixelSize, edgeSharpness);
+}
+
+/**
+ * Adjusts contrast of an image.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Image data to adjust
+ * @param {number} contrast - Contrast factor (0-2, where 1 is no change)
+ * @returns {ImageData} Adjusted image data
+ */
+export function adjustContrastStep(imageData, contrast) {
+  if (contrast === 1.0) {
+    return imageData;
+  }
+  return adjustContrast(imageData, contrast);
+}
+
+/**
+ * Quantizes colors in an image to reduce the color palette.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Image data to quantize
+ * @param {number} colorLimit - Maximum number of colors to use
+ * @returns {ImageData} Quantized image data
+ */
+export function quantizeColorsStep(imageData, colorLimit) {
+  if (!colorLimit || colorLimit <= 0) {
+    return imageData;
+  }
+  return quantizeColors(imageData, colorLimit);
+}
+
+/**
+ * Converts ImageData to Canvas or returns ImageData.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {ImageData} imageData - Image data to convert
+ * @param {boolean} returnCanvas - If true, returns canvas element; otherwise returns ImageData
+ * @returns {HTMLCanvasElement|ImageData} Canvas element or ImageData
+ */
+export function convertToCanvasStep(imageData, returnCanvas = false) {
+  if (!returnCanvas) {
+    return imageData;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/**
+ * Downscales an image by the specified pixel size.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {HTMLImageElement|HTMLCanvasElement|ImageData} image - Source image
+ * @param {number} pixelSize - Size of each pixel block
+ * @returns {Object} Object with scaledImageData (ImageData) and originalSize ({width, height})
+ */
+export function downscaleImageStep(image, pixelSize) {
+  // Get image dimensions
+  let sourceWidth, sourceHeight;
+  if (image instanceof ImageData) {
+    sourceWidth = image.width;
+    sourceHeight = image.height;
+  } else if (image instanceof HTMLCanvasElement) {
+    sourceWidth = image.width;
+    sourceHeight = image.height;
+  } else if (image instanceof HTMLImageElement) {
+    sourceWidth = image.naturalWidth || image.width;
+    sourceHeight = image.naturalHeight || image.height;
+  } else {
+    throw new Error('Unsupported image type. Use Image, Canvas, or ImageData.');
+  }
+
+  // Calculate scaled dimensions
+  const scaledWidth = Math.max(1, Math.floor(sourceWidth / pixelSize));
+  const scaledHeight = Math.max(1, Math.floor(sourceHeight / pixelSize));
+
+  // Create temporary canvas for downscaling
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = scaledWidth;
+  tempCanvas.height = scaledHeight;
+  const tempCtx = tempCanvas.getContext('2d');
+
+  // Disable image smoothing for pixelated effect
+  tempCtx.imageSmoothingEnabled = false;
+
+  // Draw source image scaled down
+  if (image instanceof ImageData) {
+    // Create a temporary canvas to draw ImageData
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = sourceWidth;
+    sourceCanvas.height = sourceHeight;
+    const sourceCtx = sourceCanvas.getContext('2d');
+    sourceCtx.putImageData(image, 0, 0);
+    tempCtx.drawImage(sourceCanvas, 0, 0, scaledWidth, scaledHeight);
+  } else {
+    tempCtx.drawImage(image, 0, 0, scaledWidth, scaledHeight);
+  }
+
+  const scaledImageData = tempCtx.getImageData(0, 0, scaledWidth, scaledHeight);
+
+  return {
+    scaledImageData,
+    originalSize: { width: sourceWidth, height: sourceHeight },
+    scaledCanvas: tempCanvas
+  };
+}
+
+/**
+ * Upscales a scaled image back to original size.
+ * Can be used independently or as part of a pipeline.
+ *
+ * @param {Object} context - Context from downscaleImageStep containing scaledImageData, originalSize, and scaledCanvas
+ * @returns {HTMLCanvasElement} Upscaled canvas
+ */
+export function upscaleImageStep(context) {
+  const { scaledImageData, originalSize, scaledCanvas } = context;
+
+  if (!scaledImageData || !originalSize || !scaledCanvas) {
+    throw new Error('upscaleImageStep requires scaledImageData, originalSize, and scaledCanvas from downscaleImageStep');
+  }
+
+  // Create output canvas for upscaling
+  const outputCanvas = document.createElement('canvas');
+  outputCanvas.width = originalSize.width;
+  outputCanvas.height = originalSize.height;
+  const outputCtx = outputCanvas.getContext('2d');
+
+  // Disable smoothing for crisp pixel edges
+  outputCtx.imageSmoothingEnabled = false;
+
+  // Draw scaled image back up to original size
+  outputCtx.drawImage(scaledCanvas, 0, 0, originalSize.width, originalSize.height);
+
+  return outputCanvas;
+}
+
+/**
  * Loads an image from a URL or file and returns a promise that resolves with the image element.
  *
  * @param {string|File} source - URL string or File object
@@ -435,35 +712,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   // Intermediates array to collect visualization steps
   const intermediates = captureIntermediates ? [] : null;
 
-  // Get image dimensions
-  let sourceWidth, sourceHeight, imageData;
-
-  if (image instanceof ImageData) {
-    sourceWidth = image.width;
-    sourceHeight = image.height;
-    imageData = image;
-  } else {
-    // Convert to ImageData
-    const canvas = document.createElement('canvas');
-    if (image instanceof HTMLCanvasElement) {
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(image, 0, 0);
-    } else if (image instanceof HTMLImageElement) {
-      sourceWidth = image.naturalWidth || image.width;
-      sourceHeight = image.naturalHeight || image.height;
-      canvas.width = sourceWidth;
-      canvas.height = sourceHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(image, 0, 0);
-    } else {
-      throw new Error('Unsupported image type. Use Image, Canvas, or ImageData.');
-    }
-    imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    sourceWidth = canvas.width;
-    sourceHeight = canvas.height;
-  }
+  // Convert to ImageData using step function
+  const imageData = convertToImageData(image);
+  const { width: sourceWidth, height: sourceHeight } = imageData;
 
   // Capture original image
   if (captureIntermediates) {
@@ -473,61 +724,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     });
   }
 
-  // Calculate edge map - always try WebGL first for performance
-  let edgeMap = null;
-  let usingGPU = false;
-
-  try {
-    edgeMap = calculateEdgeMapWebGL(imageData, { edgeSharpness });
-    usingGPU = edgeMap !== null;
-
-    if (edgeMap) {
-      // Validate WebGL edge map
-      if (edgeMap.length !== sourceWidth * sourceHeight) {
-        console.warn('WebGL edge map size mismatch, falling back to CPU');
-        edgeMap = null;
-        usingGPU = false;
-      } else {
-        // Quick check: count edges in a random sample across the whole image
-        let edgeCount = 0;
-        const sampleSize = Math.min(10000, edgeMap.length);
-        const step = Math.max(1, Math.floor(edgeMap.length / sampleSize));
-        for (let i = 0; i < edgeMap.length; i += step) {
-          if (edgeMap[i] > 0) {
-            edgeCount++;
-          }
-        }
-
-        // If WebGL edge map appears completely empty, try CPU
-        // (might be a WebGL issue or image has no edges)
-        if (edgeCount === 0 && sampleSize > 100) {
-          console.warn('WebGL edge map has no edges in sample, trying CPU');
-          const cpuEdgeMap = calculateEdgeMap(imageData, { edgeSharpness });
-          let cpuEdgeCount = 0;
-          const cpuStep = Math.max(1, Math.floor(cpuEdgeMap.length / sampleSize));
-          for (let i = 0; i < cpuEdgeMap.length; i += cpuStep) {
-            if (cpuEdgeMap[i] > 0) {
-              cpuEdgeCount++;
-            }
-          }
-          // Use CPU if it finds edges
-          if (cpuEdgeCount > 0) {
-            edgeMap = cpuEdgeMap;
-            usingGPU = false;
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('WebGL edge detection error:', error);
-    edgeMap = null;
-    usingGPU = false;
-  }
-
-  if (!edgeMap) {
-    // WebGL not available or failed, use CPU implementation
-    edgeMap = calculateEdgeMap(imageData, { edgeSharpness });
-  }
+  // Calculate edge map using step function
+  const edgeMapResult = await calculateEdgeMapStep(imageData, { edgeSharpness, onProgress });
+  const { edgeMap, usingGPU } = edgeMapResult;
 
   // Generate visualization intermediates separately
   let vizEdgeMapCanvas = null; // Store for reuse in grid overlays
@@ -626,8 +825,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     }
   }
 
-  // Create initial grid
-  const grid = createInitialGrid(sourceWidth, sourceHeight, pixelizationFactor);
+  // Create initial grid using step function
+  const grid = createGridStep(imageData, pixelizationFactor);
 
   // Verify edge map has edges before optimizing
   let edgeCount = 0;
@@ -672,17 +871,20 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     console.warn('Edge map has no edges - grid optimization will have no effect');
   }
 
-  // Optimize grid corners with more aggressive parameters for visualization
+  // Optimize grid corners using step function
   const vizStepSize = captureIntermediates ? Math.max(effectiveStepSize, pixelizationFactor * 0.5) : effectiveStepSize;
   const vizSearchSteps = captureIntermediates ? Math.max(effectiveSearchSteps, 25) : effectiveSearchSteps;
   const vizIterations = captureIntermediates ? Math.max(effectiveIterations, 4) : effectiveIterations;
 
-  optimizeGridCorners(grid, edgeMap, sourceWidth, sourceHeight, {
-    searchSteps: vizSearchSteps,
-    numIterations: vizIterations,
-    stepSize: vizStepSize,
-    edgeSharpness // Pass sharpness to control damping
-  });
+  optimizeGridStep(
+    { grid, edgeMap, imageData },
+    {
+      searchSteps: vizSearchSteps,
+      numIterations: vizIterations,
+      stepSize: vizStepSize,
+      edgeSharpness
+    }
+  );
 
   // Force visible movement for inner corners based on edge proximity
   // This ensures optimized grid shows clear deformation around edges
@@ -755,24 +957,17 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
 
   // Render as proper rectangular pixelation with edge-aware color sampling
   // (Not polygon mosaic - the grid visualization is just for showing the algorithm)
-  let outputImageData = renderEdgeAwarePixels(imageData, edgeMap, pixelizationFactor, edgeSharpness);
+  // Use step functions for the transformation pipeline
+  let outputImageData = renderEdgeAwarePixelsStep(imageData, edgeMap, pixelizationFactor, edgeSharpness);
 
-  // Apply contrast adjustment if requested
-  if (contrast !== 1.0) {
-    outputImageData = adjustContrast(outputImageData, contrast);
-  }
+  // Apply contrast adjustment using step function
+  outputImageData = adjustContrastStep(outputImageData, contrast);
 
-  // Apply color quantization if requested
-  if (colorLimit && colorLimit > 0) {
-    outputImageData = quantizeColors(outputImageData, colorLimit);
-  }
+  // Apply color quantization using step function
+  outputImageData = quantizeColorsStep(outputImageData, colorLimit);
 
-  // Create output canvas
-  const outputCanvas = document.createElement('canvas');
-  outputCanvas.width = sourceWidth;
-  outputCanvas.height = sourceHeight;
-  const ctx = outputCanvas.getContext('2d');
-  ctx.putImageData(outputImageData, 0, 0);
+  // Convert to canvas using step function
+  const outputCanvas = convertToCanvasStep(outputImageData, true);
 
   // Attach metadata to canvas
   outputCanvas._usingGPU = usingGPU;
