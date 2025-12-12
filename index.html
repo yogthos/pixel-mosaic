@@ -381,6 +381,15 @@
                         <input type="number" id="edgeSharpnessNumber" min="0" max="1" step="0.1" value="0.8">
                     </div>
 
+                    <div class="control-group" id="gridResolutionGroup" style="display: none;">
+                        <label for="gridResolution">Grid Resolution: <span id="gridResolutionValue">-</span></label>
+                        <input type="range" id="gridResolution" min="10" max="500" value="100">
+                        <input type="number" id="gridResolutionNumber" min="10" max="500" value="100">
+                        <div style="font-size: 0.75em; color: #666; margin-top: 4px;">
+                            Current: <span id="currentGridResolution">-</span>
+                        </div>
+                    </div>
+
                     <div class="control-group" id="numPassesGroup" style="display: none;">
                         <label for="numPasses">Optimization Passes: <span id="numPassesValue">3</span></label>
                         <input type="range" id="numPasses" min="1" max="10" value="3">
@@ -480,6 +489,11 @@
             edgeSharpnessSlider: document.getElementById('edgeSharpness'),
             edgeSharpnessNumber: document.getElementById('edgeSharpnessNumber'),
             edgeSharpnessValue: document.getElementById('edgeSharpnessValue'),
+            gridResolutionGroup: document.getElementById('gridResolutionGroup'),
+            gridResolutionSlider: document.getElementById('gridResolution'),
+            gridResolutionNumber: document.getElementById('gridResolutionNumber'),
+            gridResolutionValue: document.getElementById('gridResolutionValue'),
+            currentGridResolution: document.getElementById('currentGridResolution'),
             numPassesGroup: document.getElementById('numPassesGroup'),
             numPassesSlider: document.getElementById('numPasses'),
             numPassesNumber: document.getElementById('numPassesNumber'),
@@ -550,7 +564,6 @@
             syncFromSlider();
         }
 
-        syncControl(elements.pixelSizeSlider, elements.pixelSizeNumber, elements.pixelSizeValue, 2, 128, 3);
         syncControl(elements.colorLimitSlider, elements.colorLimitNumber, elements.colorLimitValue, 2, 256, 32);
         syncControl(elements.numPassesSlider, elements.numPassesNumber, elements.numPassesValue, 1, 10, 3);
 
@@ -581,6 +594,88 @@
         syncFloatControl(elements.scaleYSlider, elements.scaleYNumber, elements.scaleYValue, 0.1, 3, 1.0);
         syncFloatControl(elements.splineSmoothnessSlider, elements.splineSmoothnessNumber, elements.splineSmoothnessValue, 0, 1, 0.3);
 
+        // Grid resolution control - syncs with pixel size
+        let updatingFromPixelSize = false;
+        let updatingFromGridResolution = false;
+
+        function updateGridResolutionDisplay() {
+            if (!currentImage) {
+                elements.currentGridResolution.textContent = '-';
+                return;
+            }
+            const pixelSize = parseInt(elements.pixelSizeSlider.value);
+            const cols = Math.ceil(currentImage.width / pixelSize);
+            const rows = Math.ceil(currentImage.height / pixelSize);
+            elements.currentGridResolution.textContent = `${cols} × ${rows}`;
+
+            // Update grid resolution slider to reflect current resolution (average of cols and rows)
+            if (!updatingFromGridResolution) {
+                updatingFromPixelSize = true;
+                const avgResolution = Math.round((cols + rows) / 2);
+                const clampedResolution = Math.max(10, Math.min(500, avgResolution));
+                elements.gridResolutionSlider.value = clampedResolution;
+                elements.gridResolutionNumber.value = clampedResolution;
+                elements.gridResolutionValue.textContent = clampedResolution;
+                updatingFromPixelSize = false;
+            }
+        }
+
+        function updatePixelSizeFromGridResolution() {
+            if (!currentImage || updatingFromPixelSize) return;
+            updatingFromGridResolution = true;
+            const targetResolution = parseInt(elements.gridResolutionSlider.value);
+            // Calculate pixel size to achieve target resolution
+            // Use the larger dimension to ensure we don't exceed the target
+            const maxDimension = Math.max(currentImage.width, currentImage.height);
+            const calculatedPixelSize = Math.max(2, Math.ceil(maxDimension / targetResolution));
+            // Update pixel size controls
+            const clampedPixelSize = Math.max(2, Math.min(128, calculatedPixelSize));
+            elements.pixelSizeSlider.value = clampedPixelSize;
+            elements.pixelSizeNumber.value = clampedPixelSize;
+            elements.pixelSizeValue.textContent = clampedPixelSize;
+            updateGridResolutionDisplay();
+            updatingFromGridResolution = false;
+        }
+
+        // Sync grid resolution slider and number input
+        syncControl(elements.gridResolutionSlider, elements.gridResolutionNumber, elements.gridResolutionValue, 10, 500, 100);
+
+        // Custom pixel size sync that also updates grid resolution
+        (function() {
+            const syncFromSlider = () => {
+                const value = elements.pixelSizeSlider.value;
+                elements.pixelSizeNumber.value = value;
+                elements.pixelSizeValue.textContent = value;
+                updateGridResolutionDisplay();
+            };
+
+            const syncFromNumber = (e) => {
+                const value = Math.max(2, Math.min(128, parseInt(e.target.value) || 3));
+                elements.pixelSizeSlider.value = value;
+                elements.pixelSizeNumber.value = value;
+                elements.pixelSizeValue.textContent = value;
+                updateGridResolutionDisplay();
+            };
+
+            elements.pixelSizeSlider.addEventListener('input', syncFromSlider);
+            elements.pixelSizeNumber.addEventListener('input', syncFromNumber);
+            syncFromSlider();
+        })();
+
+        // When grid resolution changes, update pixel size
+        elements.gridResolutionSlider.addEventListener('input', () => {
+            const value = parseInt(elements.gridResolutionSlider.value);
+            elements.gridResolutionNumber.value = value;
+            elements.gridResolutionValue.textContent = value;
+            updatePixelSizeFromGridResolution();
+        });
+        elements.gridResolutionNumber.addEventListener('input', () => {
+            const value = Math.max(10, Math.min(500, parseInt(elements.gridResolutionNumber.value) || 100));
+            elements.gridResolutionSlider.value = value;
+            elements.gridResolutionValue.textContent = value;
+            updatePixelSizeFromGridResolution();
+        });
+
         // Function to update visibility of spline-dependent controls
         function updateSplineControls() {
             const useSplines = elements.useSplines.checked;
@@ -591,6 +686,7 @@
         function updateEdgeAwareControls() {
             const isEnabled = elements.useEdgeAware.checked;
             elements.edgeSharpnessGroup.style.display = isEnabled ? 'flex' : 'none';
+            elements.gridResolutionGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.numPassesGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.showStepsGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.useSplinesGroup.style.display = isEnabled ? 'flex' : 'none';
@@ -602,6 +698,8 @@
             }
             // Update spline controls visibility
             updateSplineControls();
+            // Update grid resolution display
+            updateGridResolutionDisplay();
         }
 
         // Function to update visibility of color limit controls
@@ -760,6 +858,9 @@
                 // Hide step navigation until pixelation with steps
                 elements.stepNavigation.classList.remove('active');
                 stepsData.intermediates = [];
+
+                // Update grid resolution display
+                updateGridResolutionDisplay();
 
                 elements.pixelateBtn.disabled = false;
                 elements.pixelateBtn.textContent = 'Pixelate Image';
