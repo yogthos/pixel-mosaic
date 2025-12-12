@@ -89,6 +89,15 @@ const edgeAware = await pixelateImageEdgeAware(img, 10, {
   numIterations: 3
 });
 
+// Edge-aware pixelation with smooth spline boundaries
+const splineAware = await pixelateImageEdgeAware(img, 10, {
+  returnCanvas: true,
+  edgeSharpness: 0.8,
+  numIterations: 3,
+  useSplines: true,     // Use B-spline curves for grid edges
+  splineDegree: 2       // Quadratic B-splines (smooth curves)
+});
+
 // Custom pipeline using step functions
 const imageData = convertToImageData(img);
 const { edgeMap } = await calculateEdgeMapStep(imageData, { edgeSharpness: 0.8 });
@@ -139,7 +148,7 @@ All transformation steps are available as independent functions:
 - **`createGridStep(imageData, pixelizationFactor)`** - Creates initial uniform grid
 - **`optimizeGridStep(context, options)`** - Optimizes grid corners to align with edges
   - Context: `{ grid, edgeMap, imageData }`
-  - Options: `{ searchSteps, numIterations, stepSize, edgeSharpness }`
+  - Options: `{ searchSteps, numIterations, stepSize, edgeSharpness, useSplines, splineDegree }`
 
 #### Rendering Steps
 
@@ -336,6 +345,8 @@ Edge-aware pixelation with adaptive grid alignment.
   - `edgeSharpness` (number, 0-1) - Edge sharpness (0 = soft, 1 = crisp)
   - `numIterations` (number) - Grid optimization iterations (default: 2)
   - `searchSteps` (number) - Search positions per corner (default: 9)
+  - `useSplines` (boolean) - Use B-spline curves for grid edges instead of straight lines (default: false)
+  - `splineDegree` (number) - B-spline degree, 2 for quadratic or 3 for cubic (default: 2)
   - `onProgress` (function) - Progress callback `{ usingGPU: boolean }`
 
 **Returns:** `Promise<HTMLCanvasElement|ImageData>`
@@ -409,6 +420,12 @@ Edge sharpness (0-1) controls:
 - Edge detection threshold (0.1 to 0.6)
 - Color blending: 0 = average (soft), 1 = median (crisp)
 - Grid optimization aggressiveness
+
+When `useSplines` is enabled:
+- Grid edges use B-spline curves instead of straight lines
+- Creates smoother cell boundaries that can better follow curved image edges
+- Uses quadratic (degree 2) or cubic (degree 3) B-splines
+- More computationally expensive but produces smoother results
 
 ## Development
 

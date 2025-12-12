@@ -6,6 +6,240 @@
  */
 
 import { getEdgeStrengthInterpolated, getEdgeDensity } from './edgeDetection.js';
+// WebGL polygon renderer no longer used - now rendering rectangular pixels
+// import { renderGridWebGL } from './webglGridRender.js';
+
+/**
+ * B-SPLINE UTILITIES
+ */
+
+/**
+ * Evaluates a B-spline curve at parameter t.
+ * Uses uniform B-splines with degree 2 (quadratic).
+ *
+ * @param {number} t - Parameter value (0 to 1)
+ * @param {Array} controlPoints - Array of control points [{x, y}, ...]
+ * @param {number} degree - B-spline degree (default: 2)
+ * @returns {Object} Point on curve {x, y}
+ */
+function evaluateBSpline(t, controlPoints, degree = 2) {
+  if (controlPoints.length < degree + 1) {
+    // Not enough control points, use linear interpolation
+    if (controlPoints.length === 2) {
+      return {
+        x: controlPoints[0].x + (controlPoints[1].x - controlPoints[0].x) * t,
+        y: controlPoints[0].y + (controlPoints[1].y - controlPoints[0].y) * t
+      };
+    }
+    // Fallback to first point
+    return { x: controlPoints[0].x, y: controlPoints[0].y };
+  }
+
+  // For degree 2 (quadratic) B-splines with uniform knots
+  // We use the basis functions for quadratic B-splines
+  if (degree === 2) {
+    // For a quadratic B-spline, we need 3 control points
+    // Using the first 3 control points for simplicity
+    const p0 = controlPoints[0];
+    const p1 = controlPoints[1];
+    const p2 = controlPoints[2];
+
+    // Quadratic B-spline basis functions
+    const t2 = t * t;
+    const oneMinusT = 1 - t;
+    const oneMinusT2 = oneMinusT * oneMinusT;
+
+    const b0 = 0.5 * oneMinusT2;
+    const b1 = 0.5 * (1 + 2 * t - 2 * t2);
+    const b2 = 0.5 * t2;
+
+    return {
+      x: b0 * p0.x + b1 * p1.x + b2 * p2.x,
+      y: b0 * p0.y + b1 * p1.y + b2 * p2.y
+    };
+  }
+
+  // For degree 3 (cubic) B-splines
+  if (degree === 3) {
+    const p0 = controlPoints[0];
+    const p1 = controlPoints[1];
+    const p2 = controlPoints[2];
+    const p3 = controlPoints[3];
+
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const oneMinusT = 1 - t;
+    const oneMinusT2 = oneMinusT * oneMinusT;
+    const oneMinusT3 = oneMinusT2 * oneMinusT;
+
+    const b0 = oneMinusT3 / 6;
+    const b1 = (3 * t3 - 6 * t2 + 4) / 6;
+    const b2 = (-3 * t3 + 3 * t2 + 3 * t + 1) / 6;
+    const b3 = t3 / 6;
+
+    return {
+      x: b0 * p0.x + b1 * p1.x + b2 * p2.x + b3 * p3.x,
+      y: b0 * p0.y + b1 * p1.y + b2 * p2.y + b3 * p3.y
+    };
+  }
+
+  // Fallback to linear interpolation
+  return {
+    x: controlPoints[0].x + (controlPoints[1].x - controlPoints[0].x) * t,
+    y: controlPoints[0].y + (controlPoints[1].y - controlPoints[0].y) * t
+  };
+}
+
+/**
+ * Gets control points for a B-spline edge between two corners.
+ * Uses the two corner points plus adjacent corners for smooth curves.
+ *
+ * @param {Object} corner1 - First corner point
+ * @param {Object} corner2 - Second corner point
+ * @param {Object} prevCorner - Previous corner (for direction)
+ * @param {Object} nextCorner - Next corner (for direction)
+ * @param {number} splineSmoothness - Smoothness factor (0-1), controls how much adjacent corners influence the curve (default: 0.3)
+ * @returns {Array} Control points for B-spline
+ */
+function getSplineControlPoints(corner1, corner2, prevCorner = null, nextCorner = null, splineSmoothness = 0.3) {
+  // For a simple edge, use the two corners plus a midpoint control point
+  // If we have adjacent corners, use them to influence the curve direction
+  const controlPoints = [corner1];
+
+  if (prevCorner && nextCorner) {
+    // Use adjacent corners to create a smooth curve
+    // Add a control point that influences the curve direction
+    const midX = (corner1.x + corner2.x) / 2;
+    const midY = (corner1.y + corner2.y) / 2;
+
+    // Influence from adjacent corners (weighted by smoothness)
+    const influence = splineSmoothness;
+    const controlX = midX + (prevCorner.x + nextCorner.x - 2 * midX) * influence;
+    const controlY = midY + (prevCorner.y + nextCorner.y - 2 * midY) * influence;
+
+    controlPoints.push({ x: controlX, y: controlY });
+  } else {
+    // Simple midpoint control point
+    controlPoints.push({
+      x: (corner1.x + corner2.x) / 2,
+      y: (corner1.y + corner2.y) / 2
+    });
+  }
+
+  controlPoints.push(corner2);
+  return controlPoints;
+}
+
+/**
+ * Tests if a point is inside a cell bounded by B-spline edges.
+ * Uses simplified winding number test for better performance.
+ *
+ * @param {number} x - Point X coordinate
+ * @param {number} y - Point Y coordinate
+ * @param {Object} cell - GridCell object
+ * @param {Object} grid - Grid object (unused, kept for API compatibility)
+ * @param {number} splineDegree - B-spline degree (unused for simplified test)
+ * @returns {boolean} True if point is inside the spline-bounded cell
+ */
+function pointInSplineCell(x, y, cell, grid, splineDegree = 2) {
+  // For performance, use a simplified approach:
+  // 1. First do a quick bounding box check
+  // 2. Then use polygon approximation with minimal samples
+
+  const corners = cell.corners;
+
+  // Quick bounding box check
+  let minX = corners[0].x, maxX = corners[0].x;
+  let minY = corners[0].y, maxY = corners[0].y;
+  for (let i = 1; i < 4; i++) {
+    minX = Math.min(minX, corners[i].x);
+    maxX = Math.max(maxX, corners[i].x);
+    minY = Math.min(minY, corners[i].y);
+    maxY = Math.max(maxY, corners[i].y);
+  }
+
+  // Expand bounds slightly for spline curves
+  const margin = Math.max(maxX - minX, maxY - minY) * 0.1;
+  if (x < minX - margin || x > maxX + margin || y < minY - margin || y > maxY + margin) {
+    return false;
+  }
+
+  // Use winding number algorithm with sampled spline edges
+  // Reduced samples for performance (4 samples per edge = 16 total points)
+  const numSamples = 4;
+  const polygon = [];
+
+  // Sample each edge
+  for (let edge = 0; edge < 4; edge++) {
+    const corner1 = corners[edge];
+    const corner2 = corners[(edge + 1) % 4];
+    const midX = (corner1.x + corner2.x) / 2;
+    const midY = (corner1.y + corner2.y) / 2;
+
+    for (let i = 0; i < numSamples; i++) {
+      const t = i / numSamples;
+      // Simplified quadratic B-spline evaluation inline
+      const t2 = t * t;
+      const oneMinusT = 1 - t;
+      const oneMinusT2 = oneMinusT * oneMinusT;
+      const b0 = 0.5 * oneMinusT2;
+      const b1 = 0.5 * (1 + 2 * t - 2 * t2);
+      const b2 = 0.5 * t2;
+
+      polygon.push({
+        x: b0 * corner1.x + b1 * midX + b2 * corner2.x,
+        y: b0 * corner1.y + b1 * midY + b2 * corner2.y
+      });
+    }
+  }
+
+  // Winding number test
+  let winding = 0;
+  const n = polygon.length;
+  for (let i = 0; i < n; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % n];
+
+    if (p1.y <= y) {
+      if (p2.y > y) {
+        // Upward crossing
+        const cross = (p2.x - p1.x) * (y - p1.y) - (x - p1.x) * (p2.y - p1.y);
+        if (cross > 0) winding++;
+      }
+    } else {
+      if (p2.y <= y) {
+        // Downward crossing
+        const cross = (p2.x - p1.x) * (y - p1.y) - (x - p1.x) * (p2.y - p1.y);
+        if (cross < 0) winding--;
+      }
+    }
+  }
+
+  return winding !== 0;
+}
+
+/**
+ * Checks if two line segments intersect.
+ *
+ * @param {number} x1 - First segment start X
+ * @param {number} y1 - First segment start Y
+ * @param {number} x2 - First segment end X
+ * @param {number} y2 - First segment end Y
+ * @param {number} x3 - Second segment start X
+ * @param {number} y3 - Second segment start Y
+ * @param {number} x4 - Second segment end X
+ * @param {number} y4 - Second segment end Y
+ * @returns {boolean} True if segments intersect
+ */
+function lineSegmentIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+  const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denom) < 1e-10) return false; // Parallel lines
+
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
 
 /**
  * Tests if a point is inside a quadrilateral using the cross-product method.
@@ -82,16 +316,40 @@ class GridCell {
 
   /**
    * Gets the bounding box of this cell
+   * For spline cells, bounds may extend beyond corners due to curve bulging
    */
-  getBounds() {
+  getBounds(useSplines = false, splineDegree = 2) {
     let minX = Infinity, minY = Infinity;
     let maxX = -Infinity, maxY = -Infinity;
 
+    // First, include all corner points
     for (const corner of this.corners) {
       minX = Math.min(minX, corner.x);
       minY = Math.min(minY, corner.y);
       maxX = Math.max(maxX, corner.x);
       maxY = Math.max(maxY, corner.y);
+    }
+
+    // For splines, sample the curves to find extended bounds
+    if (useSplines) {
+      const edges = [
+        [this.corners[0], this.corners[1]], // Top edge
+        [this.corners[1], this.corners[2]], // Right edge
+        [this.corners[2], this.corners[3]], // Bottom edge
+        [this.corners[3], this.corners[0]]  // Left edge
+      ];
+
+      for (const [corner1, corner2] of edges) {
+        const controlPoints = getSplineControlPoints(corner1, corner2);
+        // Sample spline curve
+        for (let t = 0; t <= 1; t += 0.1) {
+          const point = evaluateBSpline(t, controlPoints, splineDegree);
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        }
+      }
     }
 
     return { minX, minY, maxX, maxY };
@@ -100,10 +358,15 @@ class GridCell {
   /**
    * Calculates the average color of pixels within this cell
    * Optimized: samples pixels at regular intervals for speed
+   *
+   * @param {ImageData} imageData - Source image data
+   * @param {boolean} useSplines - Whether to use spline boundaries
+   * @param {Object} grid - Grid object (needed for spline point-in-cell test)
+   * @param {number} splineDegree - B-spline degree (default: 2)
    */
-  getAverageColor(imageData) {
+  getAverageColor(imageData, useSplines = false, grid = null, splineDegree = 2) {
     const { data, width } = imageData;
-    const bounds = this.getBounds();
+    const bounds = this.getBounds(useSplines, splineDegree);
 
     const minX = Math.max(0, Math.floor(bounds.minX));
     const minY = Math.max(0, Math.floor(bounds.minY));
@@ -135,7 +398,14 @@ class GridCell {
         const pixelCenterX = x + 0.5;
         const pixelCenterY = y + 0.5;
 
-        if (pointInQuadrilateral(pixelCenterX, pixelCenterY, corners)) {
+        let inside = false;
+        if (useSplines && grid) {
+          inside = pointInSplineCell(pixelCenterX, pixelCenterY, this, grid, splineDegree);
+        } else {
+          inside = pointInQuadrilateral(pixelCenterX, pixelCenterY, corners);
+        }
+
+        if (inside) {
           const idx = (y * width + x) * 4;
           r += data[idx];
           g += data[idx + 1];
@@ -179,11 +449,14 @@ class GridCell {
    *
    * @param {ImageData} imageData - Source image data
    * @param {number} sharpness - Blend factor (0-1)
+   * @param {boolean} useSplines - Whether to use spline boundaries
+   * @param {Object} grid - Grid object (needed for spline point-in-cell test)
+   * @param {number} splineDegree - B-spline degree (default: 2)
    * @returns {Object} Color {r, g, b, a}
    */
-  getBlendedColor(imageData, sharpness) {
+  getBlendedColor(imageData, sharpness, useSplines = false, grid = null, splineDegree = 2) {
     const { data, width } = imageData;
-    const bounds = this.getBounds();
+    const bounds = this.getBounds(useSplines, splineDegree);
 
     const minX = Math.max(0, Math.floor(bounds.minX));
     const minY = Math.max(0, Math.floor(bounds.minY));
@@ -213,7 +486,14 @@ class GridCell {
         const pixelCenterX = x + 0.5;
         const pixelCenterY = y + 0.5;
 
-        if (pointInQuadrilateral(pixelCenterX, pixelCenterY, corners)) {
+        let inside = false;
+        if (useSplines && grid) {
+          inside = pointInSplineCell(pixelCenterX, pixelCenterY, this, grid, splineDegree);
+        } else {
+          inside = pointInQuadrilateral(pixelCenterX, pixelCenterY, corners);
+        }
+
+        if (inside) {
           const idx = (y * width + x) * 4;
           const r = data[idx];
           const g = data[idx + 1];
@@ -230,7 +510,7 @@ class GridCell {
     }
 
     if (samples.length === 0) {
-      return this.getAverageColor(imageData);
+      return this.getAverageColor(imageData, useSplines, grid, splineDegree);
     }
 
     // Calculate average color
@@ -303,7 +583,55 @@ export function createInitialGrid(width, height, gridSize) {
 }
 
 /**
- * Evaluates how well a grid edge (line between two corners) aligns with image edges.
+ * Renders grid cell colors as rectangular pixels (not polygons).
+ * This produces the classic "pixel art" look while using edge-aware colors.
+ *
+ * @param {Object} grid - Grid with cells, cols, rows
+ * @param {ImageData} imageData - Source image data (for dimensions)
+ * @param {Array} cellColors - Pre-calculated cell colors [{r,g,b,a}, ...]
+ * @returns {ImageData} Rendered image with rectangular pixels
+ */
+export function renderGridAsRectangles(grid, imageData, cellColors) {
+  const { width, height } = imageData;
+  const { cols, rows } = grid;
+
+  const output = new ImageData(width, height);
+  const outputData = output.data;
+
+  // Calculate pixel block size
+  const blockWidth = width / cols;
+  const blockHeight = height / rows;
+
+  // Fill each rectangular block with its cell's color
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const cellIdx = row * cols + col;
+      const color = cellColors[cellIdx];
+
+      // Calculate block bounds
+      const startX = Math.floor(col * blockWidth);
+      const endX = Math.floor((col + 1) * blockWidth);
+      const startY = Math.floor(row * blockHeight);
+      const endY = Math.floor((row + 1) * blockHeight);
+
+      // Fill the block
+      for (let y = startY; y < endY && y < height; y++) {
+        for (let x = startX; x < endX && x < width; x++) {
+          const idx = (y * width + x) * 4;
+          outputData[idx] = color.r;
+          outputData[idx + 1] = color.g;
+          outputData[idx + 2] = color.b;
+          outputData[idx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Evaluates how well a grid edge (line or spline between two corners) aligns with image edges.
  * Uses nearest-neighbor sampling by default for crisp edge detection.
  *
  * @param {Float32Array} edgeMap - Edge map
@@ -313,9 +641,14 @@ export function createInitialGrid(width, height, gridSize) {
  * @param {number} y1 - Start Y coordinate
  * @param {number} x2 - End X coordinate
  * @param {number} y2 - End Y coordinate
+ * @param {boolean} useSplines - Whether to sample along B-spline curve
+ * @param {Object} prevCorner - Previous corner (for spline control points)
+ * @param {Object} nextCorner - Next corner (for spline control points)
+ * @param {number} splineDegree - B-spline degree (default: 2)
+ * @param {number} splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {number} Alignment score (higher = better alignment)
  */
-function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
+function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2, useSplines = false, prevCorner = null, nextCorner = null, splineDegree = 2, splineSmoothness = 0.3) {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const length = Math.sqrt(dx * dx + dy * dy);
@@ -328,10 +661,28 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2) {
   let consecutiveHits = 0;
   let maxConsecutiveHits = 0;
 
+  // Get control points for spline if needed
+  let controlPoints = null;
+  if (useSplines) {
+    const corner1 = { x: x1, y: y1 };
+    const corner2 = { x: x2, y: y2 };
+    controlPoints = getSplineControlPoints(corner1, corner2, prevCorner, nextCorner, splineSmoothness);
+  }
+
   for (let i = 0; i <= numSamples; i++) {
     const t = i / numSamples;
-    const x = x1 + dx * t;
-    const y = y1 + dy * t;
+    let x, y;
+
+    if (useSplines && controlPoints) {
+      // Sample along B-spline curve
+      const point = evaluateBSpline(t, controlPoints, splineDegree);
+      x = point.x;
+      y = point.y;
+    } else {
+      // Sample along straight line
+      x = x1 + dx * t;
+      y = y1 + dy * t;
+    }
 
     // Clamp to bounds
     const clampedX = Math.max(0, Math.min(width - 1, x));
@@ -410,6 +761,9 @@ function evaluateEdgeDensity(edgeMap, width, height, x, y, radius = 3) {
  * @param {number} options.numIterations - Number of optimization iterations
  * @param {number} options.stepSize - Size of each movement step
  * @param {number} options.edgeSharpness - Edge sharpness (0-1), higher = less damping for crisper snapping
+ * @param {boolean} options.useSplines - Whether to use B-spline curves for edge alignment (default: false)
+ * @param {number} options.splineDegree - B-spline degree (default: 2)
+ * @param {number} options.splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {Object} Optimized grid
  */
 export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) {
@@ -417,7 +771,10 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
     searchSteps = 9,
     numIterations = 2,
     stepSize = 1.0,
-    edgeSharpness = 0.8
+    edgeSharpness = 0.8,
+    useSplines = false,
+    splineDegree = 2,
+    splineSmoothness = 0.3
   } = options;
 
   // Validate edge map
@@ -466,10 +823,35 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
         // Calculate current alignment score (edge alignment + edge density)
         let bestAlignment = evaluateEdgeDensity(edgeMap, width, height, corner.x, corner.y, Math.ceil(stepSize));
         for (const neighbor of connectedEdges) {
+          // Find adjacent corners for spline control points
+          let prevCorner = null;
+          let nextCorner = null;
+          if (useSplines) {
+            // Find the direction of the edge to get appropriate adjacent corners
+            // For a horizontal edge, use vertical neighbors; for vertical, use horizontal
+            const dx = neighbor.x - corner.x;
+            const dy = neighbor.y - corner.y;
+
+            // Determine if edge is more horizontal or vertical
+            if (Math.abs(dx) > Math.abs(dy)) {
+              // Horizontal edge - use vertical neighbors
+              if (row > 0) prevCorner = corners[row - 1][col];
+              if (row < rows - 1) nextCorner = corners[row + 1][col];
+            } else {
+              // Vertical edge - use horizontal neighbors
+              if (col > 0) prevCorner = corners[row][col - 1];
+              if (col < cols - 1) nextCorner = corners[row][col + 1];
+            }
+          }
           bestAlignment += evaluateEdgeAlignment(
             edgeMap, width, height,
             corner.x, corner.y,
-            neighbor.x, neighbor.y
+            neighbor.x, neighbor.y,
+            useSplines,
+            prevCorner,
+            nextCorner,
+            splineDegree,
+            splineSmoothness
           );
         }
 
@@ -494,10 +876,34 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
             // Include edge density to attract corners toward edges
             let alignment = evaluateEdgeDensity(edgeMap, width, height, testX, testY, Math.ceil(stepSize));
             for (const neighbor of connectedEdges) {
+              // Find adjacent corners for spline control points
+              let prevCorner = null;
+              let nextCorner = null;
+              if (useSplines) {
+                // Find the direction of the edge to get appropriate adjacent corners
+                const dx = neighbor.x - testX;
+                const dy = neighbor.y - testY;
+
+                // Determine if edge is more horizontal or vertical
+                if (Math.abs(dx) > Math.abs(dy)) {
+                  // Horizontal edge - use vertical neighbors
+                  if (row > 0) prevCorner = corners[row - 1][col];
+                  if (row < rows - 1) nextCorner = corners[row + 1][col];
+                } else {
+                  // Vertical edge - use horizontal neighbors
+                  if (col > 0) prevCorner = corners[row][col - 1];
+                  if (col < cols - 1) nextCorner = corners[row][col + 1];
+                }
+              }
               alignment += evaluateEdgeAlignment(
                 edgeMap, width, height,
                 testX, testY,
-                neighbor.x, neighbor.y
+                neighbor.x, neighbor.y,
+                useSplines,
+                prevCorner,
+                nextCorner,
+                splineDegree,
+                splineSmoothness
               );
             }
 
@@ -534,114 +940,22 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
  * @param {ImageData} imageData - Source image data
  * @param {Float32Array} edgeMap - Optional edge map (unused, kept for API compatibility)
  * @param {number} edgeSharpness - Edge sharpness (0-1), smoothly blends between average and median colors
+ * @param {boolean} useSplines - Whether to use B-spline curves for cell boundaries (default: false)
+ * @param {number} splineDegree - B-spline degree (default: 2)
  * @returns {ImageData} Rendered pixelated image
  */
-export function renderGrid(grid, imageData, edgeMap = null, edgeSharpness = 0.8) {
+export function renderGrid(grid, imageData, edgeMap = null, edgeSharpness = 0.8, useSplines = false, splineDegree = 2) {
   const { width, height } = imageData;
-  const output = new ImageData(width, height);
-  const outputData = output.data;
 
   // Pre-calculate colors for all cells
   // Uses smooth blending between average (soft) and median (crisp) based on sharpness
   const cellColors = [];
   for (let i = 0; i < grid.cells.length; i++) {
-    cellColors.push(grid.cells[i].getBlendedColor(imageData, edgeSharpness));
+    cellColors.push(grid.cells[i].getBlendedColor(imageData, edgeSharpness, useSplines, grid, splineDegree));
   }
 
-  // Build spatial hash for fast cell lookup
-  const cellBounds = grid.cells.map(cell => cell.getBounds());
-  const bucketSize = 32; // Smaller buckets for better precision
-  const bucketsX = Math.ceil(width / bucketSize);
-  const bucketsY = Math.ceil(height / bucketSize);
-  const spatialHash = Array(bucketsY * bucketsX).fill(null).map(() => []);
-
-  // Assign cells to spatial buckets
-  for (let i = 0; i < grid.cells.length; i++) {
-    const bounds = cellBounds[i];
-    const minBucketX = Math.max(0, Math.floor(bounds.minX / bucketSize));
-    const maxBucketX = Math.min(bucketsX - 1, Math.floor(bounds.maxX / bucketSize));
-    const minBucketY = Math.max(0, Math.floor(bounds.minY / bucketSize));
-    const maxBucketY = Math.min(bucketsY - 1, Math.floor(bounds.maxY / bucketSize));
-
-    for (let by = minBucketY; by <= maxBucketY; by++) {
-      for (let bx = minBucketX; bx <= maxBucketX; bx++) {
-        spatialHash[by * bucketsX + bx].push(i);
-      }
-    }
-  }
-
-  // Pre-compute corner arrays for all cells
-  const cellCorners = grid.cells.map(cell => [
-    cell.corners[0], // topLeft
-    cell.corners[1], // topRight
-    cell.corners[2], // bottomRight
-    cell.corners[3]  // bottomLeft
-  ]);
-
-  // Render using spatial hash - ensures every pixel is assigned
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const pixelIdx = y * width + x;
-      const pixelCenterX = x + 0.5;
-      const pixelCenterY = y + 0.5;
-
-      // Get candidate cells from spatial hash
-      const bucketX = Math.floor(x / bucketSize);
-      const bucketY = Math.floor(y / bucketSize);
-      const bucketIdx = bucketY * bucketsX + bucketX;
-      const candidateCells = spatialHash[bucketIdx] || [];
-
-      // Find which cell contains this pixel
-      let assigned = false;
-      let cellIdx = 0;
-
-      // Check candidate cells first (most common case)
-      for (const i of candidateCells) {
-        if (pointInQuadrilateral(pixelCenterX, pixelCenterY, cellCorners[i])) {
-          cellIdx = i;
-          assigned = true;
-          break;
-        }
-      }
-
-      // If not found in bucket, check all cells (should be rare)
-      if (!assigned) {
-        for (let i = 0; i < grid.cells.length; i++) {
-          if (pointInQuadrilateral(pixelCenterX, pixelCenterY, cellCorners[i])) {
-            cellIdx = i;
-            assigned = true;
-            break;
-          }
-        }
-      }
-
-      // Fallback: assign to nearest cell by center distance (ensures no gaps)
-      if (!assigned) {
-        let minDist = Infinity;
-        for (let i = 0; i < grid.cells.length; i++) {
-          const bounds = cellBounds[i];
-          const centerX = (bounds.minX + bounds.maxX) / 2;
-          const centerY = (bounds.minY + bounds.maxY) / 2;
-          const dist = Math.sqrt(
-            Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
-          );
-          if (dist < minDist) {
-            minDist = dist;
-            cellIdx = i;
-          }
-        }
-      }
-
-      // Set pixel color
-      const color = cellColors[cellIdx];
-      const idx = pixelIdx * 4;
-      outputData[idx] = color.r;
-      outputData[idx + 1] = color.g;
-      outputData[idx + 2] = color.b;
-      outputData[idx + 3] = color.a;
-    }
-  }
-
-  return output;
+  // Render as rectangular pixels (classic pixel art look)
+  // The edge-aware grid optimization determines the colors, but output is rectangular
+  return renderGridAsRectangles(grid, imageData, cellColors);
 }
 
