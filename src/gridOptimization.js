@@ -98,9 +98,10 @@ function evaluateBSpline(t, controlPoints, degree = 2) {
  * @param {Object} corner2 - Second corner point
  * @param {Object} prevCorner - Previous corner (for direction)
  * @param {Object} nextCorner - Next corner (for direction)
+ * @param {number} splineSmoothness - Smoothness factor (0-1), controls how much adjacent corners influence the curve (default: 0.3)
  * @returns {Array} Control points for B-spline
  */
-function getSplineControlPoints(corner1, corner2, prevCorner = null, nextCorner = null) {
+function getSplineControlPoints(corner1, corner2, prevCorner = null, nextCorner = null, splineSmoothness = 0.3) {
   // For a simple edge, use the two corners plus a midpoint control point
   // If we have adjacent corners, use them to influence the curve direction
   const controlPoints = [corner1];
@@ -111,8 +112,8 @@ function getSplineControlPoints(corner1, corner2, prevCorner = null, nextCorner 
     const midX = (corner1.x + corner2.x) / 2;
     const midY = (corner1.y + corner2.y) / 2;
 
-    // Influence from adjacent corners (weighted)
-    const influence = 0.3;
+    // Influence from adjacent corners (weighted by smoothness)
+    const influence = splineSmoothness;
     const controlX = midX + (prevCorner.x + nextCorner.x - 2 * midX) * influence;
     const controlY = midY + (prevCorner.y + nextCorner.y - 2 * midY) * influence;
 
@@ -644,9 +645,10 @@ export function renderGridAsRectangles(grid, imageData, cellColors) {
  * @param {Object} prevCorner - Previous corner (for spline control points)
  * @param {Object} nextCorner - Next corner (for spline control points)
  * @param {number} splineDegree - B-spline degree (default: 2)
+ * @param {number} splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {number} Alignment score (higher = better alignment)
  */
-function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2, useSplines = false, prevCorner = null, nextCorner = null, splineDegree = 2) {
+function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2, useSplines = false, prevCorner = null, nextCorner = null, splineDegree = 2, splineSmoothness = 0.3) {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const length = Math.sqrt(dx * dx + dy * dy);
@@ -664,7 +666,7 @@ function evaluateEdgeAlignment(edgeMap, width, height, x1, y1, x2, y2, useSpline
   if (useSplines) {
     const corner1 = { x: x1, y: y1 };
     const corner2 = { x: x2, y: y2 };
-    controlPoints = getSplineControlPoints(corner1, corner2, prevCorner, nextCorner);
+    controlPoints = getSplineControlPoints(corner1, corner2, prevCorner, nextCorner, splineSmoothness);
   }
 
   for (let i = 0; i <= numSamples; i++) {
@@ -761,6 +763,7 @@ function evaluateEdgeDensity(edgeMap, width, height, x, y, radius = 3) {
  * @param {number} options.edgeSharpness - Edge sharpness (0-1), higher = less damping for crisper snapping
  * @param {boolean} options.useSplines - Whether to use B-spline curves for edge alignment (default: false)
  * @param {number} options.splineDegree - B-spline degree (default: 2)
+ * @param {number} options.splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {Object} Optimized grid
  */
 export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) {
@@ -770,7 +773,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
     stepSize = 1.0,
     edgeSharpness = 0.8,
     useSplines = false,
-    splineDegree = 2
+    splineDegree = 2,
+    splineSmoothness = 0.3
   } = options;
 
   // Validate edge map
@@ -846,7 +850,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
             useSplines,
             prevCorner,
             nextCorner,
-            splineDegree
+            splineDegree,
+            splineSmoothness
           );
         }
 
@@ -897,7 +902,8 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
                 useSplines,
                 prevCorner,
                 nextCorner,
-                splineDegree
+                splineDegree,
+                splineSmoothness
               );
             }
 

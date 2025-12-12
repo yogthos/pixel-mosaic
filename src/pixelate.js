@@ -496,6 +496,7 @@ export function createGridStep(imageData, pixelizationFactor) {
  * @param {number} options.edgeSharpness - Edge sharpness (0-1)
  * @param {boolean} options.useSplines - Whether to use B-spline curves for grid edges (default: false)
  * @param {number} options.splineDegree - B-spline degree (default: 2)
+ * @param {number} options.splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {Object} Optimized grid
  */
 export function optimizeGridStep(context, options = {}) {
@@ -506,7 +507,8 @@ export function optimizeGridStep(context, options = {}) {
     stepSize = 1.0,
     edgeSharpness = 0.8,
     useSplines = false,
-    splineDegree = 2
+    splineDegree = 2,
+    splineSmoothness = 0.3
   } = options;
 
   if (!grid || !edgeMap || !imageData) {
@@ -526,7 +528,8 @@ export function optimizeGridStep(context, options = {}) {
     stepSize: stepSize || 1.0,
     edgeSharpness,
     useSplines,
-    splineDegree
+    splineDegree,
+    splineSmoothness
   });
 }
 
@@ -703,6 +706,7 @@ export function upscaleImageStep(context) {
  * @param {boolean} options.captureIntermediates - If true, returns object with intermediates for visualization
  * @param {boolean} options.useSplines - Whether to use B-spline curves for grid edges (default: false)
  * @param {number} options.splineDegree - B-spline degree (default: 2)
+ * @param {number} options.splineSmoothness - Smoothness factor (0-1) for spline curves (default: 0.3)
  * @returns {HTMLCanvasElement|ImageData|Object} Pixelated image, or object with canvas and intermediates if captureIntermediates is true
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
@@ -716,7 +720,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     edgeSharpness = 0.8,
     captureIntermediates = false,
     useSplines = false,
-    splineDegree = 2
+    splineDegree = 2,
+    splineSmoothness = 0.3
   } = options;
 
   // Intermediates array to collect visualization steps
@@ -894,7 +899,8 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
       stepSize: vizStepSize,
       edgeSharpness,
       useSplines,
-      splineDegree
+      splineDegree,
+      splineSmoothness
     }
   );
 

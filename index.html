@@ -400,6 +400,12 @@
                             Use B-Splines
                         </label>
                     </div>
+
+                    <div class="control-group" id="splineSmoothnessGroup" style="display: none;">
+                        <label for="splineSmoothness">Spline Smoothness: <span id="splineSmoothnessValue">0.3</span></label>
+                        <input type="range" id="splineSmoothness" min="0" max="1" step="0.01" value="0.3">
+                        <input type="number" id="splineSmoothnessNumber" min="0" max="1" step="0.01" value="0.3">
+                    </div>
                 </div>
             </div>
 
@@ -482,6 +488,10 @@
             showAlgorithmSteps: document.getElementById('showAlgorithmSteps'),
             useSplinesGroup: document.getElementById('useSplinesGroup'),
             useSplines: document.getElementById('useSplines'),
+            splineSmoothnessGroup: document.getElementById('splineSmoothnessGroup'),
+            splineSmoothnessSlider: document.getElementById('splineSmoothness'),
+            splineSmoothnessNumber: document.getElementById('splineSmoothnessNumber'),
+            splineSmoothnessValue: document.getElementById('splineSmoothnessValue'),
             stepNavigation: document.getElementById('stepNavigation'),
             stepLabel: document.getElementById('stepLabel'),
             stepCounter: document.getElementById('stepCounter'),
@@ -569,6 +579,13 @@
         syncControl(elements.rotationAngleSlider, elements.rotationAngleNumber, elements.rotationAngleValue, 0, 360, 0);
         syncFloatControl(elements.scaleXSlider, elements.scaleXNumber, elements.scaleXValue, 0.1, 3, 1.0);
         syncFloatControl(elements.scaleYSlider, elements.scaleYNumber, elements.scaleYValue, 0.1, 3, 1.0);
+        syncFloatControl(elements.splineSmoothnessSlider, elements.splineSmoothnessNumber, elements.splineSmoothnessValue, 0, 1, 0.3);
+
+        // Function to update visibility of spline-dependent controls
+        function updateSplineControls() {
+            const useSplines = elements.useSplines.checked;
+            elements.splineSmoothnessGroup.style.display = useSplines ? 'flex' : 'none';
+        }
 
         // Function to update visibility of edge-aware dependent controls
         function updateEdgeAwareControls() {
@@ -583,6 +600,8 @@
                 elements.stepNavigation.classList.remove('active');
                 stepsData.intermediates = [];
             }
+            // Update spline controls visibility
+            updateSplineControls();
         }
 
         // Function to update visibility of color limit controls
@@ -709,6 +728,7 @@
 
         // Show/hide edge-aware controls
         elements.useEdgeAware.addEventListener('change', updateEdgeAwareControls);
+        elements.useSplines.addEventListener('change', updateSplineControls);
 
         // Show/hide rotation controls
         elements.useProjection.addEventListener('change', updateRotationControls);
@@ -781,6 +801,7 @@
                     elements.gpuStatus.textContent = 'Processing...';
 
                     const useSplines = elements.useSplines.checked;
+                    const splineSmoothness = parseFloat(elements.splineSmoothnessSlider.value);
                     const result = await pixelateImageEdgeAware(currentImage, pixelSize, {
                         returnCanvas: true,
                         searchSteps: 9,
@@ -790,6 +811,7 @@
                         edgeSharpness: edgeSharpness,
                         useSplines: useSplines,
                         splineDegree: 2,
+                        splineSmoothness: splineSmoothness,
                         captureIntermediates: showSteps,
                         onProgress: (info) => {
                             if (info.usingGPU) {
