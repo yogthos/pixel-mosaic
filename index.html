@@ -393,6 +393,13 @@
                             Show Algorithm Steps
                         </label>
                     </div>
+
+                    <div class="control-group" id="useSplinesGroup" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="useSplines">
+                            Use B-Splines
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -473,6 +480,8 @@
             numPassesValue: document.getElementById('numPassesValue'),
             showStepsGroup: document.getElementById('showStepsGroup'),
             showAlgorithmSteps: document.getElementById('showAlgorithmSteps'),
+            useSplinesGroup: document.getElementById('useSplinesGroup'),
+            useSplines: document.getElementById('useSplines'),
             stepNavigation: document.getElementById('stepNavigation'),
             stepLabel: document.getElementById('stepLabel'),
             stepCounter: document.getElementById('stepCounter'),
@@ -567,6 +576,7 @@
             elements.edgeSharpnessGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.numPassesGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.showStepsGroup.style.display = isEnabled ? 'flex' : 'none';
+            elements.useSplinesGroup.style.display = isEnabled ? 'flex' : 'none';
             elements.gpuIndicator.style.display = isEnabled ? 'block' : 'none';
             if (!isEnabled) {
                 elements.gpuStatus.textContent = '';
@@ -770,6 +780,7 @@
                     const showSteps = elements.showAlgorithmSteps.checked;
                     elements.gpuStatus.textContent = 'Processing...';
 
+                    const useSplines = elements.useSplines.checked;
                     const result = await pixelateImageEdgeAware(currentImage, pixelSize, {
                         returnCanvas: true,
                         searchSteps: 9,
@@ -777,6 +788,8 @@
                         colorLimit: colorLimit,
                         contrast: contrast,
                         edgeSharpness: edgeSharpness,
+                        useSplines: useSplines,
+                        splineDegree: 2,
                         captureIntermediates: showSteps,
                         onProgress: (info) => {
                             if (info.usingGPU) {

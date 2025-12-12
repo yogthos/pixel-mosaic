@@ -151,6 +151,8 @@ function createGrayscaleTexture(gl, imageData) {
 
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
+  // Set alignment to 1 for single-byte LUMINANCE format (avoids row padding issues)
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, width, height, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, grayscaleData);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);

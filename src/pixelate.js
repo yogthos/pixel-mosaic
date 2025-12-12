@@ -494,6 +494,8 @@ export function createGridStep(imageData, pixelizationFactor) {
  * @param {number} options.numIterations - Number of optimization iterations
  * @param {number} options.stepSize - Size of each movement step
  * @param {number} options.edgeSharpness - Edge sharpness (0-1)
+ * @param {boolean} options.useSplines - Whether to use B-spline curves for grid edges (default: false)
+ * @param {number} options.splineDegree - B-spline degree (default: 2)
  * @returns {Object} Optimized grid
  */
 export function optimizeGridStep(context, options = {}) {
@@ -502,7 +504,9 @@ export function optimizeGridStep(context, options = {}) {
     searchSteps = 9,
     numIterations = 2,
     stepSize = 1.0,
-    edgeSharpness = 0.8
+    edgeSharpness = 0.8,
+    useSplines = false,
+    splineDegree = 2
   } = options;
 
   if (!grid || !edgeMap || !imageData) {
@@ -520,7 +524,9 @@ export function optimizeGridStep(context, options = {}) {
     searchSteps: effectiveSearchSteps,
     numIterations: effectiveIterations,
     stepSize: stepSize || 1.0,
-    edgeSharpness
+    edgeSharpness,
+    useSplines,
+    splineDegree
   });
 }
 
@@ -695,6 +701,8 @@ export function upscaleImageStep(context) {
  * @param {number} options.contrast - Contrast adjustment (0-2, where 1 is no change, default: 1)
  * @param {number} options.edgeSharpness - Edge sharpness level (0-1, default: 0.8). Higher values create sharper, cleaner edges
  * @param {boolean} options.captureIntermediates - If true, returns object with intermediates for visualization
+ * @param {boolean} options.useSplines - Whether to use B-spline curves for grid edges (default: false)
+ * @param {number} options.splineDegree - B-spline degree (default: 2)
  * @returns {HTMLCanvasElement|ImageData|Object} Pixelated image, or object with canvas and intermediates if captureIntermediates is true
  */
 export async function pixelateImageEdgeAware(image, pixelizationFactor, options = {}) {
@@ -706,7 +714,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
     colorLimit = null,
     contrast = 1.0,
     edgeSharpness = 0.8,
-    captureIntermediates = false
+    captureIntermediates = false,
+    useSplines = false,
+    splineDegree = 2
   } = options;
 
   // Intermediates array to collect visualization steps
@@ -882,7 +892,9 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
       searchSteps: vizSearchSteps,
       numIterations: vizIterations,
       stepSize: vizStepSize,
-      edgeSharpness
+      edgeSharpness,
+      useSplines,
+      splineDegree
     }
   );
 
@@ -957,8 +969,15 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
 
   // Render as proper rectangular pixelation with edge-aware color sampling
   // (Not polygon mosaic - the grid visualization is just for showing the algorithm)
-  // Use step functions for the transformation pipeline
-  let outputImageData = renderEdgeAwarePixelsStep(imageData, edgeMap, pixelizationFactor, edgeSharpness);
+  // Use renderGrid when splines are enabled, otherwise use simpler block-based approach
+  let outputImageData;
+  if (useSplines) {
+    // Use optimized grid with spline boundaries
+    outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness, useSplines, splineDegree);
+  } else {
+    // Use step functions for the transformation pipeline (simpler block-based approach)
+    outputImageData = renderEdgeAwarePixelsStep(imageData, edgeMap, pixelizationFactor, edgeSharpness);
+  }
 
   // Apply contrast adjustment using step function
   outputImageData = adjustContrastStep(outputImageData, contrast);
