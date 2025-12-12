@@ -6,7 +6,8 @@
  */
 
 import { getEdgeStrengthInterpolated, getEdgeDensity } from './edgeDetection.js';
-import { renderGridWebGL } from './webglGridRender.js';
+// WebGL polygon renderer no longer used - now rendering rectangular pixels
+// import { renderGridWebGL } from './webglGridRender.js';
 
 /**
  * B-SPLINE UTILITIES
@@ -581,6 +582,54 @@ export function createInitialGrid(width, height, gridSize) {
 }
 
 /**
+ * Renders grid cell colors as rectangular pixels (not polygons).
+ * This produces the classic "pixel art" look while using edge-aware colors.
+ *
+ * @param {Object} grid - Grid with cells, cols, rows
+ * @param {ImageData} imageData - Source image data (for dimensions)
+ * @param {Array} cellColors - Pre-calculated cell colors [{r,g,b,a}, ...]
+ * @returns {ImageData} Rendered image with rectangular pixels
+ */
+export function renderGridAsRectangles(grid, imageData, cellColors) {
+  const { width, height } = imageData;
+  const { cols, rows } = grid;
+
+  const output = new ImageData(width, height);
+  const outputData = output.data;
+
+  // Calculate pixel block size
+  const blockWidth = width / cols;
+  const blockHeight = height / rows;
+
+  // Fill each rectangular block with its cell's color
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const cellIdx = row * cols + col;
+      const color = cellColors[cellIdx];
+
+      // Calculate block bounds
+      const startX = Math.floor(col * blockWidth);
+      const endX = Math.floor((col + 1) * blockWidth);
+      const startY = Math.floor(row * blockHeight);
+      const endY = Math.floor((row + 1) * blockHeight);
+
+      // Fill the block
+      for (let y = startY; y < endY && y < height; y++) {
+        for (let x = startX; x < endX && x < width; x++) {
+          const idx = (y * width + x) * 4;
+          outputData[idx] = color.r;
+          outputData[idx + 1] = color.g;
+          outputData[idx + 2] = color.b;
+          outputData[idx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  return output;
+}
+
+/**
  * Evaluates how well a grid edge (line or spline between two corners) aligns with image edges.
  * Uses nearest-neighbor sampling by default for crisp edge detection.
  *
@@ -892,17 +941,6 @@ export function optimizeGridCorners(grid, edgeMap, width, height, options = {}) 
 export function renderGrid(grid, imageData, edgeMap = null, edgeSharpness = 0.8, useSplines = false, splineDegree = 2) {
   const { width, height } = imageData;
 
-  // DEBUG: Check grid cell distribution before any processing
-  if (grid.cells.length > 0) {
-    const firstCell = grid.cells[0];
-    const lastCell = grid.cells[grid.cells.length - 1];
-    const midCell = grid.cells[Math.floor(grid.cells.length / 2)];
-    console.log(`renderGrid DEBUG: ${grid.cells.length} cells, image ${width}x${height}`);
-    console.log(`  First cell (0): corners Y = ${firstCell.corners.map(c => c.y.toFixed(0)).join(', ')}`);
-    console.log(`  Mid cell (${Math.floor(grid.cells.length / 2)}): corners Y = ${midCell.corners.map(c => c.y.toFixed(0)).join(', ')}`);
-    console.log(`  Last cell (${grid.cells.length - 1}): corners Y = ${lastCell.corners.map(c => c.y.toFixed(0)).join(', ')}`);
-  }
-
   // Pre-calculate colors for all cells
   // Uses smooth blending between average (soft) and median (crisp) based on sharpness
   const cellColors = [];
@@ -910,129 +948,8 @@ export function renderGrid(grid, imageData, edgeMap = null, edgeSharpness = 0.8,
     cellColors.push(grid.cells[i].getBlendedColor(imageData, edgeSharpness, useSplines, grid, splineDegree));
   }
 
-  // Try WebGL acceleration first (supports batching for large grids)
-  const webglResult = renderGridWebGL(grid, imageData, cellColors, useSplines, splineDegree);
-  if (webglResult) {
-    return webglResult;
-  }
-  // Fall through to CPU rendering if WebGL fails
-  if (useSplines) {
-    console.warn('WebGL spline rendering failed, using optimized CPU fallback');
-  }
-
-  // CPU fallback rendering
-  const output = new ImageData(width, height);
-  const outputData = output.data;
-
-  // Build spatial hash for fast cell lookup
-  // For splines, bounds may extend beyond corners, so we account for that
-  const cellBounds = grid.cells.map(cell => cell.getBounds(useSplines, splineDegree));
-  const bucketSize = 32; // Smaller buckets for better precision
-  const bucketsX = Math.ceil(width / bucketSize);
-  const bucketsY = Math.ceil(height / bucketSize);
-  const spatialHash = Array(bucketsY * bucketsX).fill(null).map(() => []);
-
-  // Assign cells to spatial buckets
-  for (let i = 0; i < grid.cells.length; i++) {
-    const bounds = cellBounds[i];
-    const minBucketX = Math.max(0, Math.floor(bounds.minX / bucketSize));
-    const maxBucketX = Math.min(bucketsX - 1, Math.floor(bounds.maxX / bucketSize));
-    const minBucketY = Math.max(0, Math.floor(bounds.minY / bucketSize));
-    const maxBucketY = Math.min(bucketsY - 1, Math.floor(bounds.maxY / bucketSize));
-
-    for (let by = minBucketY; by <= maxBucketY; by++) {
-      for (let bx = minBucketX; bx <= maxBucketX; bx++) {
-        spatialHash[by * bucketsX + bx].push(i);
-      }
-    }
-  }
-
-  // Pre-compute corner arrays for all cells (for polygon test)
-  const cellCorners = grid.cells.map(cell => [
-    cell.corners[0], // topLeft
-    cell.corners[1], // topRight
-    cell.corners[2], // bottomRight
-    cell.corners[3]  // bottomLeft
-  ]);
-
-  // Render using spatial hash - ensures every pixel is assigned
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const pixelIdx = y * width + x;
-      const pixelCenterX = x + 0.5;
-      const pixelCenterY = y + 0.5;
-
-      // Get candidate cells from spatial hash
-      const bucketX = Math.floor(x / bucketSize);
-      const bucketY = Math.floor(y / bucketSize);
-      const bucketIdx = bucketY * bucketsX + bucketX;
-      const candidateCells = spatialHash[bucketIdx] || [];
-
-      // Find which cell contains this pixel
-      let assigned = false;
-      let cellIdx = 0;
-
-      // Check candidate cells first (most common case)
-      for (const i of candidateCells) {
-        let inside = false;
-        if (useSplines) {
-          inside = pointInSplineCell(pixelCenterX, pixelCenterY, grid.cells[i], grid, splineDegree);
-        } else {
-          inside = pointInQuadrilateral(pixelCenterX, pixelCenterY, cellCorners[i]);
-        }
-
-        if (inside) {
-          cellIdx = i;
-          assigned = true;
-          break;
-        }
-      }
-
-      // If not found in bucket, check all cells (should be rare)
-      if (!assigned) {
-        for (let i = 0; i < grid.cells.length; i++) {
-          let inside = false;
-          if (useSplines) {
-            inside = pointInSplineCell(pixelCenterX, pixelCenterY, grid.cells[i], grid, splineDegree);
-          } else {
-            inside = pointInQuadrilateral(pixelCenterX, pixelCenterY, cellCorners[i]);
-          }
-
-          if (inside) {
-            cellIdx = i;
-            assigned = true;
-            break;
-          }
-        }
-      }
-
-      // Fallback: assign to nearest cell by center distance (ensures no gaps)
-      if (!assigned) {
-        let minDist = Infinity;
-        for (let i = 0; i < grid.cells.length; i++) {
-          const bounds = cellBounds[i];
-          const centerX = (bounds.minX + bounds.maxX) / 2;
-          const centerY = (bounds.minY + bounds.maxY) / 2;
-          const dist = Math.sqrt(
-            Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
-          );
-          if (dist < minDist) {
-            minDist = dist;
-            cellIdx = i;
-          }
-        }
-      }
-
-      // Set pixel color
-      const color = cellColors[cellIdx];
-      const idx = pixelIdx * 4;
-      outputData[idx] = color.r;
-      outputData[idx + 1] = color.g;
-      outputData[idx + 2] = color.b;
-      outputData[idx + 3] = color.a;
-    }
-  }
-
-  return output;
+  // Render as rectangular pixels (classic pixel art look)
+  // The edge-aware grid optimization determines the colors, but output is rectangular
+  return renderGridAsRectangles(grid, imageData, cellColors);
 }
 
