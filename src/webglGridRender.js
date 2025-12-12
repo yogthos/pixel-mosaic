@@ -14,11 +14,8 @@ function createGridRenderContext(canvas) {
     return null;
   }
 
-  // Log renderer info (use standard RENDERER parameter, WEBGL_debug_renderer_info is deprecated)
-  const renderer = gl.getParameter(gl.RENDERER);
-  if (renderer) {
-    console.log('WebGL grid renderer: GPU detected -', renderer);
-  }
+  // Get renderer info (use standard RENDERER parameter, WEBGL_debug_renderer_info is deprecated)
+  // Note: Renderer info available via gl.getParameter(gl.RENDERER) if needed
 
   // Vertex shader - simple pass-through
   const vertexShaderSource = `
@@ -233,12 +230,6 @@ function createCellDataTexture(gl, grid, imageWidth, imageHeight) {
   // Each cell has 4 corners, each corner uses RGBA for 16-bit X and 16-bit Y
   const data = new Uint8Array(numCells * 4 * 4); // RGBA per corner, 4 corners per cell
 
-  // Log first few cells for debugging
-  const logCount = Math.min(4, numCells);
-  if (logCount > 0) {
-    console.log(`WebGL grid: Creating cell data texture for ${numCells} cells (image ${imageWidth}x${imageHeight})`);
-  }
-
   for (let i = 0; i < numCells; i++) {
     const cell = grid.cells[i];
     const baseIdx = i * 16; // 4 corners * 4 components
@@ -256,11 +247,6 @@ function createCellDataTexture(gl, grid, imageWidth, imageHeight) {
       data[idx + 1] = xVal & 0xFF;         // X low byte
       data[idx + 2] = (yVal >> 8) & 0xFF;  // Y high byte
       data[idx + 3] = yVal & 0xFF;         // Y low byte
-
-      // Log first few cells
-      if (i < logCount) {
-        console.log(`  Cell ${i} corner ${c}: (${corner.x.toFixed(1)}, ${corner.y.toFixed(1)}) -> 16bit (${xVal}, ${yVal})`);
-      }
     }
   }
 
@@ -430,20 +416,6 @@ export function renderGridWebGL(grid, imageData, cellColors, useSplines = false,
       maxY = Math.max(maxY, corner.y);
     }
   }
-  console.log(`WebGL DEBUG: First 100 cells span X=[${minX.toFixed(0)}-${maxX.toFixed(0)}] Y=[${minY.toFixed(0)}-${maxY.toFixed(0)}] (image: ${width}x${height})`);
-
-  // Also check last 100 cells
-  minY = Infinity; maxY = -Infinity; minX = Infinity; maxX = -Infinity;
-  for (let i = Math.max(0, numCells - 100); i < numCells; i++) {
-    const cell = grid.cells[i];
-    for (const corner of cell.corners) {
-      minX = Math.min(minX, corner.x);
-      maxX = Math.max(maxX, corner.x);
-      minY = Math.min(minY, corner.y);
-      maxY = Math.max(maxY, corner.y);
-    }
-  }
-  console.log(`WebGL DEBUG: Last 100 cells span X=[${minX.toFixed(0)}-${maxX.toFixed(0)}] Y=[${minY.toFixed(0)}-${maxY.toFixed(0)}]`);
 
   // Create offscreen canvas for WebGL
   const canvas = document.createElement('canvas');
@@ -545,7 +517,6 @@ export function renderGridWebGL(grid, imageData, cellColors, useSplines = false,
         maxY = Math.max(maxY, corner.y);
       }
     }
-    console.log(`WebGL grid: Cell bounds X=[${minX.toFixed(0)}, ${maxX.toFixed(0)}] Y=[${minY.toFixed(0)}, ${maxY.toFixed(0)}] for image ${width}x${height}`);
   }
 
   // Process cells in batches
@@ -576,9 +547,6 @@ export function renderGridWebGL(grid, imageData, cellColors, useSplines = false,
     gl.deleteTexture(cellColorTexture);
   } else {
     // Multi-batch rendering - process all cells in order (simpler than spatial batching)
-    console.log(`WebGL grid renderer: Processing ${numCells} cells in ${Math.ceil(numCells / BATCH_SIZE)} batches`);
-
-    let batchNum = 0;
     for (let start = 0; start < numCells; start += BATCH_SIZE) {
       const end = Math.min(start + BATCH_SIZE, numCells);
       const batchCells = [];
@@ -586,15 +554,7 @@ export function renderGridWebGL(grid, imageData, cellColors, useSplines = false,
         batchCells.push(i);
       }
 
-      // Log batch info
-      if (batchNum < 3) {
-        const firstCell = grid.cells[batchCells[0]];
-        const lastCell = grid.cells[batchCells[batchCells.length - 1]];
-        console.log(`  Batch ${batchNum}: cells ${start}-${end - 1}, first cell Y=${firstCell.corners[0].y.toFixed(0)}, last cell Y=${lastCell.corners[0].y.toFixed(0)}`);
-      }
-
       renderBatch(gl, program, grid, cellColors, batchCells, width, height, useSplines, splineDegree);
-      batchNum++;
     }
   }
 
