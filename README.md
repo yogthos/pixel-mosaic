@@ -89,13 +89,14 @@ const edgeAware = await pixelateImageEdgeAware(img, 10, {
   numIterations: 3
 });
 
-// Edge-aware pixelation with smooth spline boundaries
+// Edge-aware pixelation with spline-optimized grid alignment
 const splineAware = await pixelateImageEdgeAware(img, 10, {
   returnCanvas: true,
   edgeSharpness: 0.8,
   numIterations: 3,
-  useSplines: true,     // Use B-spline curves for grid edges
-  splineDegree: 2       // Quadratic B-splines (smooth curves)
+  useSplines: true,           // Use Bezier curves during grid optimization
+  splineDegree: 2,            // Quadratic Bezier curves (default: 2)
+  splineSmoothness: 0.3       // Curve smoothness factor (0-1, default: 0.3)
 });
 
 // Custom pipeline using step functions
@@ -345,8 +346,9 @@ Edge-aware pixelation with adaptive grid alignment.
   - `edgeSharpness` (number, 0-1) - Edge sharpness (0 = soft, 1 = crisp)
   - `numIterations` (number) - Grid optimization iterations (default: 2)
   - `searchSteps` (number) - Search positions per corner (default: 9)
-  - `useSplines` (boolean) - Use B-spline curves for grid edges instead of straight lines (default: false)
-  - `splineDegree` (number) - B-spline degree, 2 for quadratic or 3 for cubic (default: 2)
+  - `useSplines` (boolean) - Use Bezier curves during grid optimization for better edge alignment (default: false)
+  - `splineDegree` (number) - Bezier curve degree, 2 for quadratic or 3 for cubic (default: 2)
+  - `splineSmoothness` (number) - Smoothness factor (0-1) controlling curve deviation (default: 0.3)
   - `onProgress` (function) - Progress callback `{ usingGPU: boolean }`
 
 **Returns:** `Promise<HTMLCanvasElement|ImageData>`
@@ -422,10 +424,12 @@ Edge sharpness (0-1) controls:
 - Grid optimization aggressiveness
 
 When `useSplines` is enabled:
-- Grid edges use B-spline curves instead of straight lines
-- Creates smoother cell boundaries that can better follow curved image edges
-- Uses quadratic (degree 2) or cubic (degree 3) B-splines
-- More computationally expensive but produces smoother results
+- Grid optimization uses Bezier curves to evaluate edge alignment along curved paths
+- Allows grid corners to better align with curved image edges during optimization
+- Uses quadratic (degree 2) or cubic (degree 3) Bezier curves
+- `splineSmoothness` controls how much curves deviate from straight lines (0 = straight, 1 = maximum curve)
+- Final rendering uses uniform rectangular blocks for clean pixel art (splines only affect optimization, not output)
+- More computationally expensive during optimization but produces better edge alignment
 
 ## Development
 
@@ -484,19 +488,21 @@ Edge detection approach treats pixelation as an optimization problem:
 3. **Grid Optimization**:
    - Iteratively moves grid corner points to align cell boundaries with detected edges
    - Uses a search-based optimization: for each corner, tests multiple positions in a local neighborhood
-   - Evaluates alignment by sampling edge strength along grid edges
+   - Evaluates alignment by sampling edge strength along grid edges (straight lines or Bezier curves if `useSplines` is enabled)
+   - When `useSplines` is true, uses Bezier curves to better follow curved image edges during optimization
    - Applies damping based on `edgeSharpness` to control how aggressively corners snap to edges
    - Runs for multiple iterations (default: 2-5) with progressively refined search
 
 4. **Color Assignment**:
-   - Samples pixels within each optimized cell
+   - Samples pixels from uniform rectangular regions matching output blocks
+   - This ensures sampling region exactly matches rendering region for clean, sharp edges
    - Blends between average color (soft) and median color (crisp) based on `edgeSharpness`
-   - Uses spatial hashing for efficient pixel-to-cell mapping during rendering
+   - Note: Colors are sampled from rectangular blocks, not from deformed cell shapes, to avoid artifacts
 
 5. **Rendering**:
-   - Efficiently maps each output pixel to its containing cell
-   - Uses point-in-quadrilateral tests with spatial hash acceleration
-   - Ensures complete coverage with fallback to nearest-cell assignment
+   - Renders as uniform rectangular pixel blocks (classic pixel art style)
+   - Each block uses the color sampled from its corresponding rectangular region
+   - This approach ensures perfect alignment between sampling and rendering, eliminating fuzzy edges
 
 **Advantages:**
 - Grid boundaries align with image edges, preserving important features
