@@ -979,7 +979,7 @@ export async function pixelateImageEdgeAware(image, pixelizationFactor, options 
   let outputImageData;
   if (useSplines) {
     // Use optimized grid with spline boundaries
-    outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness, useSplines, splineDegree);
+    outputImageData = renderGrid(grid, imageData, edgeMap, edgeSharpness, useSplines, splineDegree, splineSmoothness);
   } else {
     // Use step functions for the transformation pipeline (simpler block-based approach)
     outputImageData = renderEdgeAwarePixelsStep(imageData, edgeMap, pixelizationFactor, edgeSharpness);
